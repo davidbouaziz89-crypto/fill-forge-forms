@@ -24,8 +24,10 @@ import {
   ChevronRight,
   Move,
   Bug,
+  Eye,
 } from "lucide-react";
 import { DraggableField } from "./DraggableField";
+import { TemplatePreviewModal } from "./TemplatePreviewModal";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import "react-pdf/dist/esm/Page/TextLayer.css";
 
@@ -89,6 +91,7 @@ export function TemplateEditor({ template, onClose }: TemplateEditorProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [viewportDimensions, setViewportDimensions] = useState({ width: EDITOR_PDF_WIDTH, height: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
@@ -459,6 +462,17 @@ export function TemplateEditor({ template, onClose }: TemplateEditorProps) {
           </div>
           
           <div className="flex items-center gap-4">
+            {/* Preview button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsPreviewModalOpen(true)}
+              disabled={!pdfUrl}
+            >
+              <Eye className="mr-2 h-4 w-4" />
+              Prévisualiser le modèle
+            </Button>
+            
             <Badge variant="secondary">
               {currentPageFields.length} champs sur cette page
             </Badge>
@@ -710,6 +724,15 @@ export function TemplateEditor({ template, onClose }: TemplateEditorProps) {
           </div>
         </div>
       </div>
+
+      {/* Preview Modal */}
+      <TemplatePreviewModal
+        open={isPreviewModalOpen}
+        onOpenChange={setIsPreviewModalOpen}
+        templateId={template.id}
+        sourcePdfPath={template.source_pdf_storage_path || ""}
+        fields={fields}
+      />
     </div>
   );
 }
