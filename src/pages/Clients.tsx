@@ -39,11 +39,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ClientForm } from "@/components/clients/ClientForm";
+import { ImportModal } from "@/components/clients/ImportModal";
 
 export default function Clients() {
   const { userRole, userName, signOut } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const { data: clients = [], refetch } = useQuery({
     queryKey: ["clients", searchQuery],
@@ -103,7 +105,7 @@ export default function Clients() {
         actions={
           <div className="flex gap-3">
             {userRole === "admin" && (
-              <Button variant="outline">
+              <Button variant="outline" onClick={() => setIsImportModalOpen(true)}>
                 <Upload className="mr-2 h-4 w-4" />
                 Importer Excel/CSV
               </Button>
@@ -247,6 +249,12 @@ export default function Clients() {
           />
         </DialogContent>
       </Dialog>
+
+      <ImportModal
+        open={isImportModalOpen}
+        onOpenChange={setIsImportModalOpen}
+        onSuccess={() => refetch()}
+      />
     </AppLayout>
   );
 }
