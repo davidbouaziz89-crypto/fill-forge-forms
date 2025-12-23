@@ -14,6 +14,7 @@ import {
   Download,
   Plus,
   Loader2,
+  User,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery } from "@tanstack/react-query";
@@ -25,13 +26,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ClientForm } from "@/components/clients/ClientForm";
+import { GeneratePdfModal } from "@/components/clients/GeneratePdfModal";
 import { useState } from "react";
+import { toast } from "@/hooks/use-toast";
 
 export default function ClientDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { userRole, userName, signOut } = useAuth();
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
 
   const { data: client, isLoading, refetch } = useQuery({
     queryKey: ["client", id],
@@ -51,7 +55,7 @@ export default function ClientDetail() {
     enabled: !!id,
   });
 
-  const { data: documents = [] } = useQuery({
+  const { data: documents = [], refetch: refetchDocuments } = useQuery({
     queryKey: ["client-documents", id],
     queryFn: async () => {
       const { data } = await supabase
@@ -91,6 +95,33 @@ export default function ClientDetail() {
     },
     enabled: !!id,
   });
+
+  const handleDownload = async (storagePath: string, templateName: string) => {
+    try {
+      const { data, error } = await supabase.storage
+        .from("generated-documents")
+        .download(storagePath);
+
+      if (error || !data) {
+        throw new Error("Impossible de télécharger le fichier");
+      }
+
+      const url = URL.createObjectURL(data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${templateName || "document"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de télécharger le document.",
+        variant: "destructive",
+      });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -156,7 +187,7 @@ export default function ClientDetail() {
               <Edit className="mr-2 h-4 w-4" />
               Modifier
             </Button>
-            <Button variant="accent">
+            <Button variant="accent" onClick={() => setIsGenerateModalOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               Générer un document
             </Button>
@@ -216,10 +247,28 @@ export default function ClientDetail() {
                     <p className="text-sm text-muted-foreground">Raison sociale</p>
                     <p className="font-medium">{client.company_name}</p>
                   </div>
+                  {client.type_client && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Type</p>
+                      <p className="font-medium capitalize">{client.type_client}</p>
+                    </div>
+                  )}
                   {client.category && (
                     <div>
                       <p className="text-sm text-muted-foreground">Catégorie</p>
                       <p className="font-medium">{client.category}</p>
+                    </div>
+                  )}
+                  {client.siret && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">SIRET</p>
+                      <p className="font-medium">{client.siret}</p>
+                    </div>
+                  )}
+                  {client.code_naf && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Code NAF</p>
+                      <p className="font-medium">{client.code_naf}</p>
                     </div>
                   )}
                   <div>
@@ -297,7 +346,14 @@ export default function ClientDetail() {
                           </p>
                         </div>
                       </div>
-                      <Button variant="ghost" size="sm">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDownload(
+                          doc.generated_pdf_storage_path,
+                          doc.template?.name || "document"
+                        )}
+                      >
                         <Download className="mr-2 h-4 w-4" />
                         Télécharger
                       </Button>
@@ -311,7 +367,7 @@ export default function ClientDetail() {
       </div>
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Modifier le client</DialogTitle>
           </DialogHeader>
@@ -325,6 +381,15 @@ export default function ClientDetail() {
           />
         </DialogContent>
       </Dialog>
+
+      <GeneratePdfModal
+        open={isGenerateModalOpen}
+        onOpenChange={setIsGenerateModalOpen}
+        clientId={id!}
+        clientData={client}
+        customValues={customFieldsWithValues.map((f) => ({ key: f.key, value: f.value }))}
+        onSuccess={() => refetchDocuments()}
+      />
     </AppLayout>
   );
 }
