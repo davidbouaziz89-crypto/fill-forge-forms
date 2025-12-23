@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import Index from "./pages/Index";
@@ -10,9 +10,9 @@ import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Clients from "./pages/Clients";
 import ClientDetail from "./pages/ClientDetail";
-import Templates from "./pages/Templates";
-import Users from "./pages/Users";
-import CustomFields from "./pages/CustomFields";
+import FieldsSettings from "./pages/settings/FieldsSettings";
+import TemplatesSettings from "./pages/settings/TemplatesSettings";
+import UsersSettings from "./pages/settings/UsersSettings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -51,54 +51,35 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+            {/* Settings routes - Admin only */}
             <Route
-              path="/templates"
+              path="/settings/fields"
               element={
                 <ProtectedRoute requiredRole="admin">
-                  <Templates />
+                  <FieldsSettings />
                 </ProtectedRoute>
               }
             />
             <Route
-              path="/templates/new"
+              path="/settings/templates"
               element={
                 <ProtectedRoute requiredRole="admin">
-                  <Templates />
+                  <TemplatesSettings />
                 </ProtectedRoute>
               }
             />
             <Route
-              path="/templates/:id"
+              path="/settings/users"
               element={
                 <ProtectedRoute requiredRole="admin">
-                  <Templates />
+                  <UsersSettings />
                 </ProtectedRoute>
               }
             />
-            <Route
-              path="/templates/:id/edit"
-              element={
-                <ProtectedRoute requiredRole="admin">
-                  <Templates />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/users"
-              element={
-                <ProtectedRoute requiredRole="admin">
-                  <Users />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/custom-fields"
-              element={
-                <ProtectedRoute requiredRole="admin">
-                  <CustomFields />
-                </ProtectedRoute>
-              }
-            />
+            {/* Redirects for old routes */}
+            <Route path="/templates" element={<Navigate to="/settings/templates" replace />} />
+            <Route path="/users" element={<Navigate to="/settings/users" replace />} />
+            <Route path="/custom-fields" element={<Navigate to="/settings/fields" replace />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

@@ -9,8 +9,16 @@ import {
   FormInput,
   LogOut,
   Building2,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 interface NavItem {
   label: string;
@@ -19,13 +27,28 @@ interface NavItem {
   adminOnly?: boolean;
 }
 
+interface NavGroup {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  adminOnly?: boolean;
+  items: NavItem[];
+}
+
 const navItems: NavItem[] = [
   { label: "Tableau de bord", href: "/dashboard", icon: LayoutDashboard },
   { label: "Clients", href: "/clients", icon: Users },
-  { label: "Templates PDF", href: "/templates", icon: FileText, adminOnly: true },
-  { label: "Champs personnalisés", href: "/custom-fields", icon: FormInput, adminOnly: true },
-  { label: "Utilisateurs", href: "/users", icon: UserCog, adminOnly: true },
 ];
+
+const settingsGroup: NavGroup = {
+  label: "Paramétrage",
+  icon: Settings,
+  adminOnly: true,
+  items: [
+    { label: "Champs clients", href: "/settings/fields", icon: FormInput },
+    { label: "Modèles PDF", href: "/settings/templates", icon: FileText },
+    { label: "Utilisateurs", href: "/settings/users", icon: UserCog },
+  ],
+};
 
 interface AppSidebarProps {
   userRole?: "admin" | "sales";
@@ -35,10 +58,11 @@ interface AppSidebarProps {
 
 export function AppSidebar({ userRole = "admin", userName = "Utilisateur", onLogout }: AppSidebarProps) {
   const location = useLocation();
-
-  const filteredNavItems = navItems.filter(
-    (item) => !item.adminOnly || userRole === "admin"
+  const [isSettingsOpen, setIsSettingsOpen] = useState(
+    location.pathname.startsWith("/settings")
   );
+
+  const isAdmin = userRole === "admin";
 
   return (
     <aside className="flex h-screen w-64 flex-col bg-sidebar border-r border-sidebar-border">
@@ -55,7 +79,8 @@ export function AppSidebar({ userRole = "admin", userName = "Utilisateur", onLog
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 p-4">
-        {filteredNavItems.map((item) => {
+        {/* Main nav items */}
+        {navItems.map((item) => {
           const isActive = location.pathname === item.href || 
             (item.href !== "/dashboard" && location.pathname.startsWith(item.href));
           
@@ -75,6 +100,48 @@ export function AppSidebar({ userRole = "admin", userName = "Utilisateur", onLog
             </Link>
           );
         })}
+
+        {/* Settings group - Admin only */}
+        {isAdmin && (
+          <Collapsible
+            open={isSettingsOpen}
+            onOpenChange={setIsSettingsOpen}
+            className="mt-4"
+          >
+            <CollapsibleTrigger className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all duration-200">
+              <div className="flex items-center gap-3">
+                <Settings className="h-5 w-5" />
+                {settingsGroup.label}
+              </div>
+              {isSettingsOpen ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </CollapsibleTrigger>
+            <CollapsibleContent className="ml-4 mt-1 space-y-1 border-l border-sidebar-border pl-4">
+              {settingsGroup.items.map((item) => {
+                const isActive = location.pathname === item.href;
+                
+                return (
+                  <Link
+                    key={item.href}
+                    to={item.href}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
+                      isActive
+                        ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    )}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
       </nav>
 
       {/* User section */}
