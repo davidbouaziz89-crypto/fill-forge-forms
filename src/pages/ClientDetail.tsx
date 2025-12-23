@@ -15,6 +15,7 @@ import {
   Plus,
   Loader2,
   Trash2,
+  Eye,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery } from "@tanstack/react-query";
@@ -37,6 +38,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ClientForm } from "@/components/clients/ClientForm";
 import { GeneratePdfModal } from "@/components/clients/GeneratePdfModal";
+import { PreviewPdfModal } from "@/components/clients/PreviewPdfModal";
 import { useState } from "react";
 import { toast } from "@/hooks/use-toast";
 
@@ -46,6 +48,7 @@ export default function ClientDetail() {
   const { userRole, userName, signOut } = useAuth();
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<{
     id: string;
     storagePath: string;
@@ -261,6 +264,10 @@ export default function ClientDetail() {
             <Button variant="outline" onClick={() => setIsEditDialogOpen(true)}>
               <Edit className="mr-2 h-4 w-4" />
               Modifier
+            </Button>
+            <Button variant="outline" onClick={() => setIsPreviewModalOpen(true)}>
+              <Eye className="mr-2 h-4 w-4" />
+              Prévisualiser
             </Button>
             <Button variant="accent" onClick={() => setIsGenerateModalOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
@@ -478,6 +485,13 @@ export default function ClientDetail() {
         clientData={client}
         customValues={customFieldsWithValues.map((f) => ({ key: f.key, value: f.value }))}
         onSuccess={() => refetchDocuments()}
+      />
+
+      <PreviewPdfModal
+        open={isPreviewModalOpen}
+        onOpenChange={setIsPreviewModalOpen}
+        clientData={client}
+        customValues={customFieldsWithValues.map((f) => ({ key: f.key, value: f.value }))}
       />
 
       <AlertDialog open={!!documentToDelete} onOpenChange={(open) => !open && setDocumentToDelete(null)}>

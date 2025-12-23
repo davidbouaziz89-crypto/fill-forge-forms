@@ -54,7 +54,8 @@ const standardFields = [
 
 // System fields - computed at generation time
 const systemFields = [
-  { key: "today_date", label: "Date du jour", source: "system" as const },
+  { key: "today_date", label: "Date du jour (JJ/MM/AAAA)", source: "system" as const },
+  { key: "date_edition", label: "Date d'édition (JJ/MM/AAAA à HH:mm)", source: "system" as const },
 ];
 
 interface TemplateField {

@@ -15,10 +15,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import { FileText, Loader2, Download, AlertCircle, Bug } from "lucide-react";
+import { FileText, Loader2, Eye, Download, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
@@ -27,90 +25,28 @@ import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 
-const EDITOR_PDF_WIDTH_PX = 700;
-
-type CoordMode =
-  | "normalized_columns"
-  | "normalized_xy"
-  | "legacy_pixels"
-  | "legacy_points"
-  | "invalid";
-
-type DebugRowStatus = "rendered" | "skipped";
-
-type DebugSkipReason =
-  | "invalid_page"
-  | "invalid_coords"
-  | "no_pages"
-  | "error"
-  | "unknown";
-
-type DebugNote = "empty_value" | "clamped";
-
-interface DebugRow {
-  id?: string;
-  field_key: string;
-  field_source: string;
-  page: number;
-  value_resolved: string;
-  value_drawn: string;
-  coord_mode: CoordMode;
-  coords_source: {
-    x?: number;
-    y?: number;
-    width?: number;
-    height?: number;
-    x_norm?: number;
-    y_norm?: number;
-    w_norm?: number;
-    h_norm?: number;
-  };
-  coords_final?: {
-    x_pt: number;
-    y_pt: number;
-    fieldWidthPt: number;
-    pageWidthPt: number;
-    pageHeightPt: number;
-  };
-  status: DebugRowStatus;
-  skip_reason?: DebugSkipReason;
-  notes?: DebugNote[];
-}
-
-interface DebugRun {
-  templateId: string;
-  found: number;
-  rendered: number;
-  rows: DebugRow[];
-  error?: string;
-}
-
-interface GeneratePdfModalProps {
+interface PreviewPdfModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  clientId: string;
   clientData: Record<string, any>;
   customValues: { key: string; value: string | null }[];
-  onSuccess: () => void;
+  templateId?: string; // Optional: pre-select a template
 }
 
-export function GeneratePdfModal({
+export function PreviewPdfModal({
   open,
   onOpenChange,
-  clientId,
   clientData,
   customValues,
-  onSuccess,
-}: GeneratePdfModalProps) {
-  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  templateId,
+}: PreviewPdfModalProps) {
+  const [selectedTemplate, setSelectedTemplate] = useState<string>(templateId || "");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [debugEnabled, setDebugEnabled] = useState(false);
-  const [debugShowEmptyPlaceholder, setDebugShowEmptyPlaceholder] = useState(false);
-  const [debugRun, setDebugRun] = useState<DebugRun | null>(null);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
 
   // Fetch templates
   const { data: templates = [] } = useQuery({
-    queryKey: ["pdf-templates-generate"],
+    queryKey: ["pdf-templates-preview"],
     queryFn: async () => {
       const { data } = await supabase
         .from("pdf_templates")
@@ -122,7 +58,7 @@ export function GeneratePdfModal({
 
   // Fetch template fields when a template is selected
   const { data: templateFields = [] } = useQuery({
-    queryKey: ["template-fields", selectedTemplate],
+    queryKey: ["template-fields-preview", selectedTemplate],
     queryFn: async () => {
       if (!selectedTemplate) return [];
       const { data } = await supabase
@@ -196,7 +132,7 @@ export function GeneratePdfModal({
     return lines;
   };
 
-  const handleGenerate = async () => {
+  const handlePreview = async () => {
     if (!selectedTemplate) {
       toast({ title: "Erreur", description: "Veuillez sélectionner un modèle.", variant: "destructive" });
       return;
@@ -209,6 +145,7 @@ export function GeneratePdfModal({
     }
 
     setIsGenerating(true);
+    setPdfBlobUrl(null);
 
     try {
       // Download source PDF
@@ -241,12 +178,11 @@ export function GeneratePdfModal({
         value = applyTransform(value, field.transform || "none");
 
         if (!value) {
-          console.warn(`Empty value for field: ${field.field_key}`);
           continue;
         }
 
         const fontSize = field.font_size || 10;
-
+        
         // Calculate field dimensions in PDF points
         const x_norm = Number(field.x) || 0;
         const y_norm = Number(field.y) || 0;
@@ -323,46 +259,16 @@ export function GeneratePdfModal({
         }
       }
 
-      // Save generated PDF
+      // Generate PDF blob for preview (NOT saved)
       const generatedPdfBytes = await pdfDoc.save();
-      const fileName = `${clientId}/${Date.now()}-${template.name.replace(/\s+/g, "_")}.pdf`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("generated-documents")
-        .upload(fileName, generatedPdfBytes, {
-          contentType: "application/pdf",
-        });
-
-      if (uploadError) throw uploadError;
-
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-
-      // Save document record
-      const { error: insertError } = await supabase
-        .from("generated_documents")
-        .insert({
-          client_id: clientId,
-          template_id: selectedTemplate,
-          generated_pdf_storage_path: fileName,
-          generated_by_user_id: user?.id,
-          meta_json: { template_name: template.name },
-        });
-
-      if (insertError) throw insertError;
-
-      toast({
-        title: "Document généré",
-        description: "Le PDF a été créé et ajouté à l'historique.",
-      });
-
-      onSuccess();
-      onOpenChange(false);
+      const blob = new Blob([new Uint8Array(generatedPdfBytes)], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      setPdfBlobUrl(url);
     } catch (error) {
-      console.error("PDF generation error:", error);
+      console.error("PDF preview error:", error);
       toast({
         title: "Erreur",
-        description: "Impossible de générer le document.",
+        description: "Impossible de générer la prévisualisation.",
         variant: "destructive",
       });
     } finally {
@@ -370,13 +276,32 @@ export function GeneratePdfModal({
     }
   };
 
+  const handleClose = () => {
+    if (pdfBlobUrl) {
+      URL.revokeObjectURL(pdfBlobUrl);
+    }
+    setPdfBlobUrl(null);
+    onOpenChange(false);
+  };
+
+  const handleDownload = () => {
+    if (!pdfBlobUrl) return;
+    const template = templates.find((t) => t.id === selectedTemplate);
+    const a = document.createElement("a");
+    a.href = pdfBlobUrl;
+    a.download = `preview-${template?.name || "document"}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="max-w-4xl max-h-[90vh]">
         <DialogHeader>
-          <DialogTitle>Générer un document</DialogTitle>
+          <DialogTitle>Prévisualiser le document</DialogTitle>
           <DialogDescription>
-            Sélectionnez un modèle pour générer un PDF pré-rempli
+            Visualisez le PDF avec les données du client sans créer de document
           </DialogDescription>
         </DialogHeader>
 
@@ -393,54 +318,37 @@ export function GeneratePdfModal({
             </Button>
           </div>
         ) : (
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <Label>Modèle de document</Label>
-              <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Sélectionner un modèle" />
-                </SelectTrigger>
-                <SelectContent>
-                  {templates.map((template) => (
-                    <SelectItem key={template.id} value={template.id}>
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4" />
-                        {template.name}
-                        {template.category && (
-                          <span className="text-xs text-muted-foreground">
-                            ({template.category})
-                          </span>
-                        )}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {selectedTemplate && templateFields.length > 0 && (
-              <div className="rounded-lg border border-border p-4 bg-muted/50">
-                <p className="text-sm font-medium mb-2">Champs qui seront remplis :</p>
-                <div className="flex flex-wrap gap-2">
-                  {templateFields.map((field) => (
-                    <span
-                      key={field.id}
-                      className="text-xs bg-background px-2 py-1 rounded border"
-                    >
-                      {field.field_key}
-                    </span>
-                  ))}
-                </div>
+          <div className="space-y-4">
+            <div className="flex gap-4 items-end">
+              <div className="flex-1 space-y-2">
+                <Label>Modèle de document</Label>
+                <Select value={selectedTemplate} onValueChange={(v) => {
+                  setSelectedTemplate(v);
+                  setPdfBlobUrl(null);
+                }}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner un modèle" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templates.map((template) => (
+                      <SelectItem key={template.id} value={template.id}>
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4" />
+                          {template.name}
+                          {template.category && (
+                            <span className="text-xs text-muted-foreground">
+                              ({template.category})
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            )}
-
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Annuler
-              </Button>
               <Button
                 variant="accent"
-                onClick={handleGenerate}
+                onClick={handlePreview}
                 disabled={isGenerating || !selectedTemplate}
               >
                 {isGenerating ? (
@@ -450,12 +358,37 @@ export function GeneratePdfModal({
                   </>
                 ) : (
                   <>
-                    <Download className="mr-2 h-4 w-4" />
-                    Générer
+                    <Eye className="mr-2 h-4 w-4" />
+                    Prévisualiser
                   </>
                 )}
               </Button>
             </div>
+
+            {pdfBlobUrl && (
+              <div className="space-y-4">
+                <div className="border rounded-lg overflow-hidden bg-muted/30">
+                  <iframe
+                    src={pdfBlobUrl}
+                    className="w-full h-[60vh]"
+                    title="Prévisualisation PDF"
+                  />
+                </div>
+                <div className="flex justify-end gap-3">
+                  <Button variant="outline" onClick={handleDownload}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Télécharger la prévisualisation
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {!pdfBlobUrl && selectedTemplate && (
+              <div className="border border-dashed rounded-lg p-12 flex flex-col items-center justify-center text-muted-foreground">
+                <Eye className="h-12 w-12 mb-4 opacity-50" />
+                <p>Cliquez sur "Prévisualiser" pour afficher le document</p>
+              </div>
+            )}
           </div>
         )}
       </DialogContent>
