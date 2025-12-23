@@ -456,14 +456,14 @@ export function ClientForm({ onSuccess, onCancel, initialData }: ClientFormProps
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="assigned_user_id">Commercial assigné</Label>
               <Select
-                value={formData.assigned_user_id}
-                onValueChange={(value) => handleChange("assigned_user_id", value)}
+                value={formData.assigned_user_id || "none"}
+                onValueChange={(value) => handleChange("assigned_user_id", value === "none" ? "" : value)}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Sélectionner un commercial" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Non assigné</SelectItem>
+                  <SelectItem value="none">Non assigné</SelectItem>
                   {salesUsers.map((user) => (
                     <SelectItem key={user.id} value={user.id}>
                       {user.name}
