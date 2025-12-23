@@ -105,7 +105,7 @@ export function ClientForm({ onSuccess, onCancel, initialData }: ClientFormProps
           description: "Les informations ont été mises à jour.",
         });
       } else {
-        const { error } = await supabase.from("clients").insert(dataToSave);
+        const { error } = await supabase.from("clients").insert(dataToSave as any);
 
         if (error) throw error;
 
