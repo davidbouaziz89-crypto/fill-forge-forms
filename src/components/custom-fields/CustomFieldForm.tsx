@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -15,20 +16,22 @@ import { toast } from "@/hooks/use-toast";
 import { z } from "zod";
 
 const fieldSchema = z.object({
-  key: z.string().min(1, "La clé est requise").regex(/^[a-z_]+$/, "Utilisez uniquement des lettres minuscules et underscores"),
+  key: z.string().min(1, "La clé est requise").regex(/^[a-z_][a-z0-9_]*$/, "Utilisez uniquement des lettres minuscules, chiffres et underscores"),
   label: z.string().min(1, "Le label est requis"),
   type: z.enum(["text", "number", "date", "select", "boolean"]),
   required_bool: z.boolean(),
   visibility: z.enum(["admin_only", "editable", "read_only"]),
   default_value: z.string().optional(),
+  options_json: z.array(z.string()).optional(),
 });
 
 interface CustomFieldFormProps {
   onSuccess: () => void;
   onCancel: () => void;
+  initialData?: any;
 }
 
-export function CustomFieldForm({ onSuccess, onCancel }: CustomFieldFormProps) {
+export function CustomFieldForm({ onSuccess, onCancel, initialData }: CustomFieldFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   
@@ -39,7 +42,24 @@ export function CustomFieldForm({ onSuccess, onCancel }: CustomFieldFormProps) {
     required_bool: false,
     visibility: "editable" as "admin_only" | "editable" | "read_only",
     default_value: "",
+    options_text: "",
   });
+
+  useEffect(() => {
+    if (initialData) {
+      setFormData({
+        key: initialData.key || "",
+        label: initialData.label || "",
+        type: initialData.type || "text",
+        required_bool: initialData.required_bool || false,
+        visibility: initialData.visibility || "editable",
+        default_value: initialData.default_value || "",
+        options_text: Array.isArray(initialData.options_json) 
+          ? initialData.options_json.join("\n") 
+          : "",
+      });
+    }
+  }, [initialData]);
 
   const handleChange = (field: string, value: string | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -55,13 +75,16 @@ export function CustomFieldForm({ onSuccess, onCancel }: CustomFieldFormProps) {
   // Auto-generate key from label
   const handleLabelChange = (value: string) => {
     handleChange("label", value);
-    const key = value
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
-    handleChange("key", key);
+    if (!initialData) {
+      const key = value
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .replace(/^[0-9]/, "_$&");
+      handleChange("key", key);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -69,30 +92,61 @@ export function CustomFieldForm({ onSuccess, onCancel }: CustomFieldFormProps) {
     setErrors({});
     
     try {
-      fieldSchema.parse(formData);
+      const options = formData.type === "select" 
+        ? formData.options_text.split("\n").filter(o => o.trim())
+        : [];
+
+      const dataToValidate = {
+        key: formData.key,
+        label: formData.label,
+        type: formData.type,
+        required_bool: formData.required_bool,
+        visibility: formData.visibility,
+        default_value: formData.default_value,
+        options_json: options,
+      };
+
+      fieldSchema.parse(dataToValidate);
       setIsLoading(true);
 
-      const { error } = await supabase.from("custom_fields").insert({
+      const dataToSave = {
         key: formData.key,
         label: formData.label,
         type: formData.type,
         required_bool: formData.required_bool,
         visibility: formData.visibility,
         default_value: formData.default_value || null,
-      });
+        options_json: options.length > 0 ? options : null,
+      };
 
-      if (error) {
-        if (error.code === "23505") {
-          setErrors({ key: "Cette clé existe déjà" });
-          return;
+      if (initialData?.id) {
+        const { error } = await supabase
+          .from("custom_fields")
+          .update(dataToSave as any)
+          .eq("id", initialData.id);
+
+        if (error) throw error;
+
+        toast({
+          title: "Champ modifié",
+          description: `Le champ "${formData.label}" a été mis à jour.`,
+        });
+      } else {
+        const { error } = await supabase.from("custom_fields").insert(dataToSave as any);
+
+        if (error) {
+          if (error.code === "23505") {
+            setErrors({ key: "Cette clé existe déjà" });
+            return;
+          }
+          throw error;
         }
-        throw error;
-      }
 
-      toast({
-        title: "Champ créé",
-        description: `Le champ "${formData.label}" a été ajouté.`,
-      });
+        toast({
+          title: "Champ créé",
+          description: `Le champ "${formData.label}" a été ajouté.`,
+        });
+      }
 
       onSuccess();
     } catch (error) {
@@ -138,12 +192,13 @@ export function CustomFieldForm({ onSuccess, onCancel }: CustomFieldFormProps) {
           value={formData.key}
           onChange={(e) => handleChange("key", e.target.value)}
           placeholder="ex: siret, code_naf..."
+          disabled={!!initialData}
         />
         {errors.key && (
           <p className="text-sm text-destructive">{errors.key}</p>
         )}
         <p className="text-xs text-muted-foreground">
-          Utilisée dans les templates PDF
+          Utilisée dans les templates PDF (ne peut pas être modifiée après création)
         </p>
       </div>
 
@@ -166,6 +221,19 @@ export function CustomFieldForm({ onSuccess, onCancel }: CustomFieldFormProps) {
         </Select>
       </div>
 
+      {formData.type === "select" && (
+        <div className="space-y-2">
+          <Label htmlFor="options">Options (une par ligne)</Label>
+          <Textarea
+            id="options"
+            value={formData.options_text}
+            onChange={(e) => handleChange("options_text", e.target.value)}
+            placeholder="Option 1&#10;Option 2&#10;Option 3"
+            rows={4}
+          />
+        </div>
+      )}
+
       <div className="space-y-2">
         <Label htmlFor="visibility">Visibilité</Label>
         <Select
@@ -177,7 +245,7 @@ export function CustomFieldForm({ onSuccess, onCancel }: CustomFieldFormProps) {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="editable">Modifiable par tous</SelectItem>
-            <SelectItem value="read_only">Lecture seule</SelectItem>
+            <SelectItem value="read_only">Lecture seule (commerciaux)</SelectItem>
             <SelectItem value="admin_only">Admin uniquement</SelectItem>
           </SelectContent>
         </Select>
@@ -211,7 +279,7 @@ export function CustomFieldForm({ onSuccess, onCancel }: CustomFieldFormProps) {
           Annuler
         </Button>
         <Button type="submit" variant="accent" disabled={isLoading}>
-          {isLoading ? "Création..." : "Créer"}
+          {isLoading ? "Enregistrement..." : initialData ? "Modifier" : "Créer"}
         </Button>
       </div>
     </form>

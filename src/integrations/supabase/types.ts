@@ -60,6 +60,7 @@ export type Database = {
           assigned_user_id: string | null
           category: string | null
           city: string | null
+          code_naf: string | null
           company_name: string
           country: string | null
           created_at: string | null
@@ -68,7 +69,9 @@ export type Database = {
           id: string
           last_name: string | null
           phone: string | null
+          siret: string | null
           tags: Json | null
+          type_client: string | null
           updated_at: string | null
           zip: string | null
         }
@@ -78,6 +81,7 @@ export type Database = {
           assigned_user_id?: string | null
           category?: string | null
           city?: string | null
+          code_naf?: string | null
           company_name: string
           country?: string | null
           created_at?: string | null
@@ -86,7 +90,9 @@ export type Database = {
           id?: string
           last_name?: string | null
           phone?: string | null
+          siret?: string | null
           tags?: Json | null
+          type_client?: string | null
           updated_at?: string | null
           zip?: string | null
         }
@@ -96,6 +102,7 @@ export type Database = {
           assigned_user_id?: string | null
           category?: string | null
           city?: string | null
+          code_naf?: string | null
           company_name?: string
           country?: string | null
           created_at?: string | null
@@ -104,7 +111,9 @@ export type Database = {
           id?: string
           last_name?: string | null
           phone?: string | null
+          siret?: string | null
           tags?: Json | null
+          type_client?: string | null
           updated_at?: string | null
           zip?: string | null
         }
