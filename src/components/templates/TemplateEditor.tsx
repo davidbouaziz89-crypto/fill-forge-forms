@@ -33,25 +33,30 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 
 // Standard fields
 const standardFields = [
-  { key: "type_client", label: "Type de client", source: "standard" },
-  { key: "company_name", label: "Société", source: "standard" },
-  { key: "first_name", label: "Prénom", source: "standard" },
-  { key: "last_name", label: "Nom", source: "standard" },
-  { key: "email", label: "Email", source: "standard" },
-  { key: "phone", label: "Téléphone", source: "standard" },
-  { key: "address_line1", label: "Adresse 1", source: "standard" },
-  { key: "address_line2", label: "Adresse 2", source: "standard" },
-  { key: "zip", label: "Code postal", source: "standard" },
-  { key: "city", label: "Ville", source: "standard" },
-  { key: "country", label: "Pays", source: "standard" },
-  { key: "siret", label: "SIRET", source: "standard" },
-  { key: "code_naf", label: "Code NAF", source: "standard" },
+  { key: "type_client", label: "Type de client", source: "standard" as const },
+  { key: "company_name", label: "Société", source: "standard" as const },
+  { key: "first_name", label: "Prénom", source: "standard" as const },
+  { key: "last_name", label: "Nom", source: "standard" as const },
+  { key: "email", label: "Email", source: "standard" as const },
+  { key: "phone", label: "Téléphone", source: "standard" as const },
+  { key: "address_line1", label: "Adresse 1", source: "standard" as const },
+  { key: "address_line2", label: "Adresse 2", source: "standard" as const },
+  { key: "zip", label: "Code postal", source: "standard" as const },
+  { key: "city", label: "Ville", source: "standard" as const },
+  { key: "country", label: "Pays", source: "standard" as const },
+  { key: "siret", label: "SIRET", source: "standard" as const },
+  { key: "code_naf", label: "Code NAF", source: "standard" as const },
+];
+
+// System fields - computed at generation time
+const systemFields = [
+  { key: "today_date", label: "Date du jour", source: "system" as const },
 ];
 
 interface TemplateField {
   id?: string;
   template_id: string;
-  field_source: "standard" | "custom";
+  field_source: "standard" | "custom" | "system";
   field_key: string;
   page: number;
   x: number;
@@ -101,8 +106,9 @@ export function TemplateEditor({ template, onClose }: TemplateEditorProps) {
     ...customFields.map((f: any) => ({
       key: f.key,
       label: f.label,
-      source: "custom",
+      source: "custom" as const,
     })),
+    ...systemFields,
   ];
 
   // Fetch existing template fields
@@ -156,7 +162,7 @@ export function TemplateEditor({ template, onClose }: TemplateEditorProps) {
 
     const newField: TemplateField = {
       template_id: template.id,
-      field_source: fieldInfo.source as "standard" | "custom",
+      field_source: fieldInfo.source as "standard" | "custom" | "system",
       field_key: selectedFieldKey,
       page: currentPage,
       x: Math.round(x),
@@ -342,6 +348,23 @@ export function TemplateEditor({ template, onClose }: TemplateEditorProps) {
                 ))}
               </>
             )}
+
+            <h4 className="text-xs font-semibold text-info uppercase tracking-wide mt-4 mb-2">
+              Système
+            </h4>
+            {systemFields.map((field) => (
+              <button
+                key={field.key}
+                onClick={() => setSelectedFieldKey(field.key)}
+                className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                  selectedFieldKey === field.key
+                    ? "bg-info text-info-foreground"
+                    : "hover:bg-info/10"
+                }`}
+              >
+                {field.label}
+              </button>
+            ))}
           </div>
         </div>
 
