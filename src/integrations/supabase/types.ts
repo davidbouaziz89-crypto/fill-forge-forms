@@ -368,7 +368,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "sales"
-      field_source: "standard" | "custom"
+      field_source: "standard" | "custom" | "system"
       field_type: "text" | "number" | "date" | "select" | "boolean"
       field_visibility: "admin_only" | "editable" | "read_only"
       text_align: "left" | "center" | "right"
@@ -501,7 +501,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "sales"],
-      field_source: ["standard", "custom"],
+      field_source: ["standard", "custom", "system"],
       field_type: ["text", "number", "date", "select", "boolean"],
       field_visibility: ["admin_only", "editable", "read_only"],
       text_align: ["left", "center", "right"],
