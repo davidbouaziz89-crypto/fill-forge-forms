@@ -14,7 +14,7 @@ import {
   Download,
   Plus,
   Loader2,
-  User,
+  Trash2,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery } from "@tanstack/react-query";
@@ -25,6 +25,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ClientForm } from "@/components/clients/ClientForm";
 import { GeneratePdfModal } from "@/components/clients/GeneratePdfModal";
 import { useState } from "react";
@@ -36,6 +46,12 @@ export default function ClientDetail() {
   const { userRole, userName, signOut } = useAuth();
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  const [documentToDelete, setDocumentToDelete] = useState<{
+    id: string;
+    storagePath: string;
+    templateName: string;
+  } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const { data: client, isLoading, refetch } = useQuery({
     queryKey: ["client", id],
@@ -120,6 +136,65 @@ export default function ClientDetail() {
         description: "Impossible de télécharger le document.",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleDeleteDocument = async () => {
+    if (!documentToDelete) return;
+    
+    setIsDeleting(true);
+    let storageDeleteError = false;
+
+    try {
+      // 1) Delete from storage first
+      const { error: storageError } = await supabase.storage
+        .from("generated-documents")
+        .remove([documentToDelete.storagePath]);
+
+      if (storageError) {
+        console.error("Storage delete error:", storageError);
+        storageDeleteError = true;
+        // Continue to delete DB record even if storage fails
+      }
+
+      // 2) Delete from database
+      const { error: dbError } = await supabase
+        .from("generated_documents")
+        .delete()
+        .eq("id", documentToDelete.id);
+
+      if (dbError) {
+        throw dbError;
+      }
+
+      // 3) Refresh list
+      await refetchDocuments();
+
+      // 4) Show appropriate toast
+      if (storageDeleteError) {
+        toast({
+          title: "Document supprimé",
+          description: "Le document a été supprimé mais le fichier n'a pas pu être effacé du stockage.",
+          variant: "default",
+        });
+      } else {
+        toast({
+          title: "Document supprimé",
+          description: "Le document a été supprimé avec succès.",
+        });
+      }
+    } catch (error: any) {
+      console.error("Delete document error:", error);
+      toast({
+        title: "Erreur",
+        description: error.message?.includes("row-level security") 
+          ? "Accès refusé. Vous n'avez pas les droits pour supprimer ce document."
+          : "Impossible de supprimer le document.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+      setDocumentToDelete(null);
     }
   };
 
@@ -346,17 +421,31 @@ export default function ClientDetail() {
                           </p>
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDownload(
-                          doc.generated_pdf_storage_path,
-                          doc.template?.name || "document"
-                        )}
-                      >
-                        <Download className="mr-2 h-4 w-4" />
-                        Télécharger
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDownload(
+                            doc.generated_pdf_storage_path,
+                            doc.template?.name || "document"
+                          )}
+                        >
+                          <Download className="mr-2 h-4 w-4" />
+                          Télécharger
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => setDocumentToDelete({
+                            id: doc.id,
+                            storagePath: doc.generated_pdf_storage_path,
+                            templateName: doc.template?.name || "document",
+                          })}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -390,6 +479,34 @@ export default function ClientDetail() {
         customValues={customFieldsWithValues.map((f) => ({ key: f.key, value: f.value }))}
         onSuccess={() => refetchDocuments()}
       />
+
+      <AlertDialog open={!!documentToDelete} onOpenChange={(open) => !open && setDocumentToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce document ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Vous êtes sur le point de supprimer "{documentToDelete?.templateName}". Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDeleteDocument}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Suppression...
+                </>
+              ) : (
+                "Supprimer"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }
