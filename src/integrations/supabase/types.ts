@@ -364,6 +364,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      no_admin_exists: { Args: never; Returns: boolean }
     }
     Enums: {
       app_role: "admin" | "sales"
