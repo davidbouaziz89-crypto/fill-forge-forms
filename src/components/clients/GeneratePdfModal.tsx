@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,7 +15,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { FileText, Loader2, Download, AlertCircle } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { FileText, Loader2, Download, AlertCircle, Bug } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
@@ -23,6 +26,64 @@ import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
+
+const EDITOR_PDF_WIDTH_PX = 700;
+
+type CoordMode =
+  | "normalized_columns"
+  | "normalized_xy"
+  | "legacy_pixels"
+  | "legacy_points"
+  | "invalid";
+
+type DebugRowStatus = "rendered" | "skipped";
+
+type DebugSkipReason =
+  | "invalid_page"
+  | "invalid_coords"
+  | "no_pages"
+  | "error"
+  | "unknown";
+
+type DebugNote = "empty_value" | "clamped";
+
+interface DebugRow {
+  id?: string;
+  field_key: string;
+  field_source: string;
+  page: number;
+  value_resolved: string;
+  value_drawn: string;
+  coord_mode: CoordMode;
+  coords_source: {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    x_norm?: number;
+    y_norm?: number;
+    w_norm?: number;
+    h_norm?: number;
+  };
+  coords_final?: {
+    x_pt: number;
+    y_pt: number;
+    fieldWidthPt: number;
+    pageWidthPt: number;
+    pageHeightPt: number;
+  };
+  status: DebugRowStatus;
+  skip_reason?: DebugSkipReason;
+  notes?: DebugNote[];
+}
+
+interface DebugRun {
+  templateId: string;
+  found: number;
+  rendered: number;
+  rows: DebugRow[];
+  error?: string;
+}
 
 interface GeneratePdfModalProps {
   open: boolean;
@@ -43,6 +104,9 @@ export function GeneratePdfModal({
 }: GeneratePdfModalProps) {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [debugEnabled, setDebugEnabled] = useState(false);
+  const [debugShowEmptyPlaceholder, setDebugShowEmptyPlaceholder] = useState(false);
+  const [debugRun, setDebugRun] = useState<DebugRun | null>(null);
 
   // Fetch templates
   const { data: templates = [] } = useQuery({
