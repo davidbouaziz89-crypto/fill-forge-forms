@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Loader2, Eye, Download, User, UserPlus } from "lucide-react";
+import { Loader2, Eye, Download, User, UserPlus, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
@@ -84,6 +84,7 @@ export function TemplatePreviewModal({
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Fetch existing clients
   const { data: clients = [] } = useQuery({
@@ -96,6 +97,7 @@ export function TemplatePreviewModal({
         .limit(50);
       return data ?? [];
     },
+    enabled: open,
   });
 
   // Fetch selected client data
@@ -110,7 +112,7 @@ export function TemplatePreviewModal({
         .single();
       return data;
     },
-    enabled: !!selectedClientId && clientSource === "existing",
+    enabled: !!selectedClientId && clientSource === "existing" && open,
   });
 
   // Fetch custom values for selected client
@@ -127,7 +129,7 @@ export function TemplatePreviewModal({
         value: v.value_text,
       }));
     },
-    enabled: !!selectedClientId && clientSource === "existing",
+    enabled: !!selectedClientId && clientSource === "existing" && open,
   });
 
   // Fetch custom fields for mock values
@@ -140,6 +142,7 @@ export function TemplatePreviewModal({
         .order("sort_order");
       return data ?? [];
     },
+    enabled: open,
   });
 
   const getFieldValue = (fieldKey: string, fieldSource: string): string => {
@@ -214,19 +217,30 @@ export function TemplatePreviewModal({
   };
 
   const handlePreview = async () => {
+    console.log("Starting preview generation...");
+    console.log("Source PDF path:", sourcePdfPath);
+    console.log("Fields count:", fields.length);
+    console.log("Client source:", clientSource);
+    
+    setErrorMessage(null);
+    
     if (!sourcePdfPath) {
+      const msg = "Ce modèle n'a pas de PDF source configuré.";
+      setErrorMessage(msg);
       toast({
         title: "Erreur",
-        description: "Ce modèle n'a pas de PDF source.",
+        description: msg,
         variant: "destructive",
       });
       return;
     }
 
     if (clientSource === "existing" && !selectedClientId) {
+      const msg = "Veuillez sélectionner un client.";
+      setErrorMessage(msg);
       toast({
         title: "Erreur",
-        description: "Veuillez sélectionner un client.",
+        description: msg,
         variant: "destructive",
       });
       return;
@@ -236,30 +250,50 @@ export function TemplatePreviewModal({
     setPdfBlobUrl(null);
 
     try {
+      console.log("Downloading source PDF from:", sourcePdfPath);
+      
       // Download source PDF
       const { data: pdfData, error: downloadError } = await supabase.storage
         .from("pdf-templates")
         .download(sourcePdfPath);
 
-      if (downloadError || !pdfData) {
-        throw new Error("Impossible de télécharger le PDF source");
+      if (downloadError) {
+        console.error("Download error:", downloadError);
+        throw new Error(`Erreur de téléchargement: ${downloadError.message}`);
       }
+      
+      if (!pdfData) {
+        throw new Error("Le fichier PDF source est vide ou introuvable.");
+      }
+
+      console.log("PDF downloaded, size:", pdfData.size);
 
       // Load PDF with pdf-lib
       const pdfBytes = await pdfData.arrayBuffer();
+      console.log("PDF bytes loaded:", pdfBytes.byteLength);
+      
       const pdfDoc = await PDFDocument.load(pdfBytes);
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
       const pages = pdfDoc.getPages();
+      
+      console.log("PDF loaded, pages:", pages.length);
 
       // Apply current fields (from editor, not saved)
+      console.log("Applying fields:", fields);
+      
       for (const field of fields) {
         const pageIndex = (field.page || 1) - 1;
-        if (pageIndex >= pages.length) continue;
+        if (pageIndex >= pages.length) {
+          console.warn("Field page out of range:", field.page);
+          continue;
+        }
 
         const page = pages[pageIndex];
         const { width: pageWidthPt, height: pageHeightPt } = page.getSize();
 
         let value = getFieldValue(field.field_key, field.field_source);
+        console.log(`Field ${field.field_key}: value="${value}"`);
+        
         if (field.fallback_value && !value) {
           value = field.fallback_value;
         }
@@ -336,17 +370,25 @@ export function TemplatePreviewModal({
       }
 
       // Generate PDF blob (NOT saved)
+      console.log("Generating final PDF...");
       const generatedPdfBytes = await pdfDoc.save();
       const blob = new Blob([new Uint8Array(generatedPdfBytes)], {
         type: "application/pdf",
       });
       const url = URL.createObjectURL(blob);
+      console.log("PDF generated, blob URL:", url);
       setPdfBlobUrl(url);
-    } catch (error) {
-      console.error("PDF preview error:", error);
       toast({
-        title: "Erreur",
-        description: "Impossible de générer la prévisualisation.",
+        title: "Prévisualisation générée",
+        description: "Le PDF a été généré avec succès.",
+      });
+    } catch (error: any) {
+      console.error("PDF preview error:", error);
+      const errorMsg = error?.message || "Impossible de générer la prévisualisation.";
+      setErrorMessage(errorMsg);
+      toast({
+        title: "Erreur de génération",
+        description: errorMsg,
         variant: "destructive",
       });
     } finally {
@@ -484,12 +526,24 @@ export function TemplatePreviewModal({
             </div>
           )}
 
+          {/* Error state */}
+          {!pdfBlobUrl && errorMessage && (
+            <div className="border border-destructive/50 bg-destructive/10 rounded-lg p-6 flex flex-col items-center justify-center text-destructive">
+              <AlertCircle className="h-12 w-12 mb-4" />
+              <p className="font-medium">Erreur de génération</p>
+              <p className="text-sm mt-2 text-center">{errorMessage}</p>
+            </div>
+          )}
+
           {/* Empty state */}
-          {!pdfBlobUrl && (
+          {!pdfBlobUrl && !errorMessage && (
             <div className="border border-dashed rounded-lg p-12 flex flex-col items-center justify-center text-muted-foreground">
               <Eye className="h-12 w-12 mb-4 opacity-50" />
               <p>Cliquez sur "Générer la prévisualisation" pour voir le rendu</p>
               <p className="text-xs mt-2">Les positions actuelles des champs seront utilisées</p>
+              {fields.length === 0 && (
+                <p className="text-xs mt-2 text-amber-500">Aucun champ n'est placé sur le document</p>
+              )}
             </div>
           )}
         </div>
