@@ -20,6 +20,7 @@ import {
   Edit,
   Trash2,
   UserCog,
+  Loader2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -28,63 +29,96 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
-// Mock data
-const mockUsers = [
-  {
-    id: "1",
-    name: "Admin Principal",
-    email: "admin@docucrm.fr",
-    role: "admin" as const,
-    isActive: true,
-    clientsCount: 0,
-    createdAt: "2024-01-01",
-  },
-  {
-    id: "2",
-    name: "Marie Martin",
-    email: "marie.martin@docucrm.fr",
-    role: "sales" as const,
-    isActive: true,
-    clientsCount: 45,
-    createdAt: "2024-01-15",
-  },
-  {
-    id: "3",
-    name: "Jean Dupont",
-    email: "jean.dupont@docucrm.fr",
-    role: "sales" as const,
-    isActive: true,
-    clientsCount: 32,
-    createdAt: "2024-02-01",
-  },
-  {
-    id: "4",
-    name: "Sophie Bernard",
-    email: "sophie.bernard@docucrm.fr",
-    role: "sales" as const,
-    isActive: false,
-    clientsCount: 18,
-    createdAt: "2024-02-15",
-  },
-];
+import { useAuth } from "@/hooks/useAuth";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { UserForm } from "@/components/users/UserForm";
 
 export default function Users() {
+  const { userRole, userName, signOut } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const queryClient = useQueryClient();
 
-  const filteredUsers = mockUsers.filter(
-    (user) =>
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ["users", searchQuery],
+    queryFn: async () => {
+      let query = supabase
+        .from("profiles")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (searchQuery) {
+        query = query.or(`name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`);
+      }
+
+      const { data: profiles } = await query;
+
+      // Get roles for each user
+      const { data: roles } = await supabase.from("user_roles").select("*");
+
+      // Get client counts
+      const { data: clientCounts } = await supabase
+        .from("clients")
+        .select("assigned_user_id");
+
+      const counts: Record<string, number> = {};
+      (clientCounts ?? []).forEach((c) => {
+        if (c.assigned_user_id) {
+          counts[c.assigned_user_id] = (counts[c.assigned_user_id] || 0) + 1;
+        }
+      });
+
+      return (profiles ?? []).map((profile) => ({
+        ...profile,
+        role: roles?.find((r) => r.user_id === profile.id)?.role ?? "sales",
+        clientsCount: counts[profile.id] || 0,
+      }));
+    },
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: async ({ userId, isActive }: { userId: string; isActive: boolean }) => {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ is_active: isActive })
+        .eq("id", userId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      toast({ title: "Statut mis à jour" });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <AppLayout userRole={userRole ?? "admin"} userName={userName} onLogout={signOut}>
+        <div className="flex h-full items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-accent" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
-    <AppLayout userRole="admin" userName="Admin">
+    <AppLayout 
+      userRole={userRole ?? "admin"} 
+      userName={userName || "Utilisateur"} 
+      onLogout={signOut}
+    >
       <PageHeader
         title="Utilisateurs"
         description="Gérez les comptes utilisateurs"
         actions={
-          <Button variant="accent">
+          <Button variant="accent" onClick={() => setIsCreateDialogOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Nouvel utilisateur
           </Button>
@@ -120,7 +154,7 @@ export default function Users() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredUsers.map((user) => (
+              {users.map((user) => (
                 <TableRow key={user.id} className="group">
                   <TableCell>
                     <div className="flex items-center gap-3">
@@ -149,20 +183,25 @@ export default function Users() {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <Switch checked={user.isActive} />
+                      <Switch
+                        checked={user.is_active}
+                        onCheckedChange={(checked) =>
+                          toggleActiveMutation.mutate({ userId: user.id, isActive: checked })
+                        }
+                      />
                       <span
                         className={
-                          user.isActive
+                          user.is_active
                             ? "text-success"
                             : "text-muted-foreground"
                         }
                       >
-                        {user.isActive ? "Actif" : "Inactif"}
+                        {user.is_active ? "Actif" : "Inactif"}
                       </span>
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {user.createdAt}
+                    {new Date(user.created_at).toLocaleDateString("fr-FR")}
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>
@@ -193,7 +232,7 @@ export default function Users() {
             </TableBody>
           </Table>
 
-          {filteredUsers.length === 0 && (
+          {users.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <UserCog className="h-12 w-12 text-muted-foreground/50" />
               <p className="mt-4 text-sm text-muted-foreground">
@@ -203,6 +242,21 @@ export default function Users() {
           )}
         </div>
       </div>
+
+      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nouvel utilisateur</DialogTitle>
+          </DialogHeader>
+          <UserForm
+            onSuccess={() => {
+              setIsCreateDialogOpen(false);
+              queryClient.invalidateQueries({ queryKey: ["users"] });
+            }}
+            onCancel={() => setIsCreateDialogOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

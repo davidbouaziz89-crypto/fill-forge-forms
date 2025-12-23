@@ -1,33 +1,136 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Building2, Mail, Lock, ArrowRight } from "lucide-react";
+import { Building2, Mail, Lock, ArrowRight, User } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { z } from "zod";
+
+const signInSchema = z.object({
+  email: z.string().email("Email invalide"),
+  password: z.string().min(6, "Le mot de passe doit contenir au moins 6 caractères"),
+});
+
+const signUpSchema = signInSchema.extend({
+  name: z.string().min(2, "Le nom doit contenir au moins 2 caractères"),
+});
 
 export default function Auth() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user, signIn, signUp, isLoading: authLoading } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user && !authLoading) {
+      const from = (location.state as { from?: { pathname: string } })?.from?.pathname || "/dashboard";
+      navigate(from, { replace: true });
+    }
+  }, [user, authLoading, navigate, location]);
+
+  const validateForm = () => {
+    setErrors({});
+    
+    try {
+      if (isSignUp) {
+        signUpSchema.parse({ email, password, name });
+      } else {
+        signInSchema.parse({ email, password });
+      }
+      return true;
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const newErrors: Record<string, string> = {};
+        error.errors.forEach((err) => {
+          if (err.path[0]) {
+            newErrors[err.path[0] as string] = err.message;
+          }
+        });
+        setErrors(newErrors);
+      }
+      return false;
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!validateForm()) return;
+    
     setIsLoading(true);
 
-    // Simulated auth - will be replaced with Supabase
-    setTimeout(() => {
-      setIsLoading(false);
-      toast({
-        title: isSignUp ? "Compte créé" : "Connexion réussie",
-        description: "Redirection vers le tableau de bord...",
-      });
+    try {
+      if (isSignUp) {
+        const { error } = await signUp(email, password, name);
+        
+        if (error) {
+          if (error.message.includes("already registered")) {
+            toast({
+              title: "Compte existant",
+              description: "Un compte existe déjà avec cet email. Essayez de vous connecter.",
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Erreur d'inscription",
+              description: error.message,
+              variant: "destructive",
+            });
+          }
+          return;
+        }
+        
+        toast({
+          title: "Compte créé",
+          description: "Bienvenue ! Redirection vers le tableau de bord...",
+        });
+      } else {
+        const { error } = await signIn(email, password);
+        
+        if (error) {
+          if (error.message.includes("Invalid login credentials")) {
+            toast({
+              title: "Identifiants incorrects",
+              description: "Email ou mot de passe incorrect.",
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Erreur de connexion",
+              description: error.message,
+              variant: "destructive",
+            });
+          }
+          return;
+        }
+        
+        toast({
+          title: "Connexion réussie",
+          description: "Redirection vers le tableau de bord...",
+        });
+      }
+      
       navigate("/dashboard");
-    }, 1000);
+    } finally {
+      setIsLoading(false);
+    }
   };
+
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-accent border-t-transparent" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen">
@@ -87,14 +190,20 @@ export default function Auth() {
             {isSignUp && (
               <div className="space-y-2">
                 <Label htmlFor="name">Nom complet</Label>
-                <Input
-                  id="name"
-                  type="text"
-                  placeholder="Jean Dupont"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required={isSignUp}
-                />
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="name"
+                    type="text"
+                    placeholder="Jean Dupont"
+                    className="pl-10"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+                {errors.name && (
+                  <p className="text-sm text-destructive">{errors.name}</p>
+                )}
               </div>
             )}
 
@@ -109,9 +218,11 @@ export default function Auth() {
                   className="pl-10"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  required
                 />
               </div>
+              {errors.email && (
+                <p className="text-sm text-destructive">{errors.email}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -125,9 +236,11 @@ export default function Auth() {
                   className="pl-10"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  required
                 />
               </div>
+              {errors.password && (
+                <p className="text-sm text-destructive">{errors.password}</p>
+              )}
             </div>
 
             <Button
@@ -151,7 +264,10 @@ export default function Auth() {
           <div className="text-center">
             <button
               type="button"
-              onClick={() => setIsSignUp(!isSignUp)}
+              onClick={() => {
+                setIsSignUp(!isSignUp);
+                setErrors({});
+              }}
               className="text-sm text-muted-foreground hover:text-foreground"
             >
               {isSignUp
