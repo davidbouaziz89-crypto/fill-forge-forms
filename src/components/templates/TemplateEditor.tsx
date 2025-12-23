@@ -18,13 +18,12 @@ import {
   ArrowLeft,
   Save,
   Trash2,
-  Eye,
   Loader2,
   ChevronLeft,
   ChevronRight,
   Move,
-  Type,
 } from "lucide-react";
+import { DraggableField } from "./DraggableField";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import "react-pdf/dist/esm/Page/TextLayer.css";
 
@@ -81,8 +80,6 @@ export function TemplateEditor({ template, onClose }: TemplateEditorProps) {
   const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null);
   const [fields, setFields] = useState<TemplateField[]>([]);
   const [selectedField, setSelectedField] = useState<TemplateField | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -148,7 +145,11 @@ export function TemplateEditor({ template, onClose }: TemplateEditorProps) {
   };
 
   const handlePdfClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!selectedFieldKey || isDragging) return;
+    // If no field key selected, just deselect any selected field
+    if (!selectedFieldKey) {
+      setSelectedField(null);
+      return;
+    }
 
     const container = containerRef.current;
     if (!container) return;
@@ -167,6 +168,8 @@ export function TemplateEditor({ template, onClose }: TemplateEditorProps) {
       page: currentPage,
       x: Math.round(x),
       y: Math.round(y),
+      width: 100,
+      height: 24,
       font_size: 10,
       align: "left",
       transform: "none",
@@ -174,54 +177,21 @@ export function TemplateEditor({ template, onClose }: TemplateEditorProps) {
 
     setFields([...fields, newField]);
     setSelectedFieldKey(null);
+    setSelectedField(newField);
     toast({ title: `Champ "${fieldInfo.label}" ajouté` });
   };
 
-  const handleFieldMouseDown = (e: React.MouseEvent, field: TemplateField, index: number) => {
-    e.stopPropagation();
-    setSelectedField(field);
-    setIsDragging(true);
-    
-    const rect = (e.target as HTMLElement).getBoundingClientRect();
-    setDragOffset({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    });
-  };
-
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
-      if (!isDragging || !selectedField || !containerRef.current) return;
-
-      const rect = containerRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left - dragOffset.x;
-      const y = e.clientY - rect.top - dragOffset.y;
-
+  const updateFieldById = useCallback(
+    (field: TemplateField, updates: Partial<TemplateField>) => {
       setFields((prev) =>
-        prev.map((f) =>
-          f === selectedField
-            ? { ...f, x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) }
-            : f
-        )
+        prev.map((f) => (f === field ? { ...f, ...updates } : f))
       );
+      if (selectedField === field) {
+        setSelectedField({ ...field, ...updates });
+      }
     },
-    [isDragging, selectedField, dragOffset]
+    [selectedField]
   );
-
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  useEffect(() => {
-    if (isDragging) {
-      window.addEventListener("mousemove", handleMouseMove);
-      window.addEventListener("mouseup", handleMouseUp);
-      return () => {
-        window.removeEventListener("mousemove", handleMouseMove);
-        window.removeEventListener("mouseup", handleMouseUp);
-      };
-    }
-  }, [isDragging, handleMouseMove, handleMouseUp]);
 
   const deleteField = (index: number) => {
     const field = fields[index];
@@ -431,32 +401,21 @@ export function TemplateEditor({ template, onClose }: TemplateEditorProps) {
             {/* Field overlays */}
             {currentPageFields.map((field, index) => {
               const fieldInfo = allFields.find((f) => f.key === field.field_key);
-              const globalIndex = fields.indexOf(field);
               
               return (
-                <div
-                  key={index}
-                  className={`absolute cursor-move rounded border-2 px-1 text-xs ${
-                    selectedField === field
-                      ? "border-accent bg-accent/20"
-                      : "border-primary bg-primary/10 hover:border-accent"
-                  }`}
-                  style={{
-                    left: field.x,
-                    top: field.y,
-                    fontSize: field.font_size,
+                <DraggableField
+                  key={`${field.field_key}-${index}`}
+                  field={field}
+                  label={fieldInfo?.label || field.field_key}
+                  isSelected={selectedField === field}
+                  containerRef={containerRef}
+                  onSelect={() => setSelectedField(field)}
+                  onUpdate={(updates) => updateFieldById(field, updates)}
+                  onDelete={() => {
+                    const globalIndex = fields.indexOf(field);
+                    if (globalIndex !== -1) deleteField(globalIndex);
                   }}
-                  onMouseDown={(e) => handleFieldMouseDown(e, field, globalIndex)}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedField(field);
-                  }}
-                >
-                  <div className="flex items-center gap-1">
-                    <Type className="h-3 w-3" />
-                    <span>{fieldInfo?.label || field.field_key}</span>
-                  </div>
-                </div>
+                />
               );
             })}
           </div>
@@ -495,6 +454,27 @@ export function TemplateEditor({ template, onClose }: TemplateEditorProps) {
                   type="number"
                   value={selectedField.y}
                   onChange={(e) => updateFieldProperty("y", parseInt(e.target.value) || 0)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label htmlFor="width" className="text-xs">Largeur</Label>
+                <Input
+                  id="width"
+                  type="number"
+                  value={selectedField.width || 100}
+                  onChange={(e) => updateFieldProperty("width", parseInt(e.target.value) || 100)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="height" className="text-xs">Hauteur</Label>
+                <Input
+                  id="height"
+                  type="number"
+                  value={selectedField.height || 24}
+                  onChange={(e) => updateFieldProperty("height", parseInt(e.target.value) || 24)}
                 />
               </div>
             </div>
