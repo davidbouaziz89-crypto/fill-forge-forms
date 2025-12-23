@@ -21,6 +21,8 @@ import { toast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { Link } from "react-router-dom";
+import { format } from "date-fns";
+import { fr } from "date-fns/locale";
 
 interface GeneratePdfModalProps {
   open: boolean;
@@ -69,6 +71,16 @@ export function GeneratePdfModal({
   });
 
   const getFieldValue = (fieldKey: string, fieldSource: string): string => {
+    // Handle system fields
+    if (fieldSource === "system") {
+      switch (fieldKey) {
+        case "today_date":
+          return format(new Date(), "dd/MM/yyyy", { locale: fr });
+        default:
+          return "";
+      }
+    }
+
     if (fieldSource === "custom") {
       const customVal = customValues.find((cv) => cv.key === fieldKey);
       return customVal?.value ?? "";
@@ -125,7 +137,7 @@ export function GeneratePdfModal({
         if (pageIndex >= pages.length) continue;
 
         const page = pages[pageIndex];
-        const { height } = page.getSize();
+        const { width: pageWidthPt, height: pageHeightPt } = page.getSize();
 
         let value = getFieldValue(field.field_key, field.field_source);
         if (field.fallback_value && !value) {
@@ -133,15 +145,59 @@ export function GeneratePdfModal({
         }
         value = applyTransform(value, field.transform || "none");
 
-        if (!value) continue;
+        if (!value) {
+          console.warn(`Empty value for field: ${field.field_key}`);
+          continue;
+        }
 
-        const x = Number(field.x) || 0;
-        const y = height - (Number(field.y) || 0) - (field.font_size || 12);
         const fontSize = field.font_size || 12;
 
+        // Field coordinates are stored as normalized (0-1)
+        // x and y are relative positions where:
+        // - x: 0 = left edge, 1 = right edge
+        // - y: 0 = top edge, 1 = bottom edge (in editor coordinates)
+        // PDF coordinate system has origin at bottom-left
+
+        // Convert normalized coordinates to PDF points
+        const x_norm = Number(field.x) || 0;
+        const y_norm = Number(field.y) || 0;
+        const w_norm = Number(field.width) || 0.1;
+        const h_norm = Number(field.height) || 0.03;
+
+        // Calculate PDF coordinates
+        let x_pt = x_norm * pageWidthPt;
+        
+        // Y: Convert from top-origin (editor) to bottom-origin (PDF)
+        // y_norm is measured from top in editor, but PDF uses bottom-left origin
+        const y_from_top_pt = y_norm * pageHeightPt;
+        // Subtract from page height to flip, then subtract baseline offset
+        let y_pt = pageHeightPt - y_from_top_pt - fontSize;
+
+        // Clamp coordinates to ensure text stays on page
+        const textWidth = font.widthOfTextAtSize(value, fontSize);
+        const minMargin = 2; // Small margin from edges
+        
+        x_pt = Math.max(minMargin, Math.min(x_pt, pageWidthPt - textWidth - minMargin));
+        y_pt = Math.max(minMargin, Math.min(y_pt, pageHeightPt - fontSize - minMargin));
+
+        // Handle alignment within field width
+        const fieldWidthPt = w_norm * pageWidthPt;
+        let finalX = x_pt;
+        
+        if (field.align === "center") {
+          finalX = x_pt + (fieldWidthPt - textWidth) / 2;
+        } else if (field.align === "right") {
+          finalX = x_pt + fieldWidthPt - textWidth;
+        }
+
+        // Ensure finalX is still valid after alignment
+        finalX = Math.max(minMargin, Math.min(finalX, pageWidthPt - textWidth - minMargin));
+
+        console.log(`Drawing field "${field.field_key}": value="${value}", x=${finalX.toFixed(2)}, y=${y_pt.toFixed(2)}, fontSize=${fontSize}`);
+
         page.drawText(value, {
-          x,
-          y,
+          x: finalX,
+          y: y_pt,
           size: fontSize,
           font,
           color: rgb(0, 0, 0),
