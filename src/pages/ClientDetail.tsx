@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,47 +13,114 @@ import {
   Edit,
   Download,
   Plus,
+  Loader2,
 } from "lucide-react";
-import { Link } from "react-router-dom";
-
-// Mock client data
-const mockClient = {
-  id: "1",
-  companyName: "Entreprise ABC",
-  firstName: "Jean",
-  lastName: "Dupont",
-  email: "jean.dupont@abc.fr",
-  phone: "01 23 45 67 89",
-  addressLine1: "123 Rue de la Paix",
-  addressLine2: "Bâtiment A",
-  zip: "75001",
-  city: "Paris",
-  country: "France",
-  assignedTo: "Marie Martin",
-  siret: "123 456 789 00012",
-  codeNaf: "6201Z",
-  createdAt: "2024-01-15",
-  documents: [
-    {
-      id: "1",
-      templateName: "Contrat de service",
-      createdAt: "2024-03-15",
-      generatedBy: "Marie Martin",
-    },
-    {
-      id: "2",
-      templateName: "Proposition commerciale",
-      createdAt: "2024-02-28",
-      generatedBy: "Marie Martin",
-    },
-  ],
-};
+import { useAuth } from "@/hooks/useAuth";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ClientForm } from "@/components/clients/ClientForm";
+import { useState } from "react";
 
 export default function ClientDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { userRole, userName, signOut } = useAuth();
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+
+  const { data: client, isLoading, refetch } = useQuery({
+    queryKey: ["client", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("clients")
+        .select(`
+          *,
+          assigned_user:profiles(name)
+        `)
+        .eq("id", id)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!id,
+  });
+
+  const { data: documents = [] } = useQuery({
+    queryKey: ["client-documents", id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("generated_documents")
+        .select(`
+          id,
+          created_at,
+          generated_pdf_storage_path,
+          template:pdf_templates(name),
+          generated_by:profiles(name)
+        `)
+        .eq("client_id", id)
+        .order("created_at", { ascending: false });
+
+      return data ?? [];
+    },
+    enabled: !!id,
+  });
+
+  const { data: customFieldsWithValues = [] } = useQuery({
+    queryKey: ["client-custom-fields", id],
+    queryFn: async () => {
+      const { data: fields } = await supabase
+        .from("custom_fields")
+        .select("*")
+        .order("sort_order");
+
+      const { data: values } = await supabase
+        .from("client_custom_values")
+        .select("*")
+        .eq("client_id", id);
+
+      return (fields ?? []).map((field) => ({
+        ...field,
+        value: values?.find((v) => v.custom_field_id === field.id)?.value_text ?? null,
+      }));
+    },
+    enabled: !!id,
+  });
+
+  if (isLoading) {
+    return (
+      <AppLayout userRole={userRole ?? "sales"} userName={userName} onLogout={signOut}>
+        <div className="flex h-full items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-accent" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!client) {
+    return (
+      <AppLayout userRole={userRole ?? "sales"} userName={userName} onLogout={signOut}>
+        <div className="flex h-full flex-col items-center justify-center">
+          <p className="text-muted-foreground">Client non trouvé</p>
+          <Button variant="outline" className="mt-4" onClick={() => navigate("/clients")}>
+            Retour aux clients
+          </Button>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
-    <AppLayout userRole="admin" userName="Admin">
+    <AppLayout 
+      userRole={userRole ?? "sales"} 
+      userName={userName || "Utilisateur"} 
+      onLogout={signOut}
+    >
       <div className="border-b border-border bg-card px-8 py-6">
         <div className="mb-4">
           <Link
@@ -71,19 +138,21 @@ export default function ClientDetail() {
             </div>
             <div>
               <h1 className="text-2xl font-semibold text-foreground">
-                {mockClient.companyName}
+                {client.company_name}
               </h1>
               <p className="text-muted-foreground">
-                {mockClient.firstName} {mockClient.lastName}
+                {client.first_name} {client.last_name}
               </p>
               <div className="mt-2 flex items-center gap-2">
-                <Badge variant="secondary">{mockClient.assignedTo}</Badge>
-                <Badge variant="outline">{mockClient.documents.length} documents</Badge>
+                {client.assigned_user?.name && (
+                  <Badge variant="secondary">{client.assigned_user.name}</Badge>
+                )}
+                <Badge variant="outline">{documents.length} documents</Badge>
               </div>
             </div>
           </div>
           <div className="flex gap-3">
-            <Button variant="outline">
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(true)}>
               <Edit className="mr-2 h-4 w-4" />
               Modifier
             </Button>
@@ -109,25 +178,33 @@ export default function ClientDetail() {
               <div className="rounded-xl border border-border bg-card p-6">
                 <h3 className="mb-4 font-semibold text-foreground">Contact</h3>
                 <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <Mail className="h-5 w-5 text-muted-foreground" />
-                    <span>{mockClient.email}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Phone className="h-5 w-5 text-muted-foreground" />
-                    <span>{mockClient.phone}</span>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <MapPin className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p>{mockClient.addressLine1}</p>
-                      {mockClient.addressLine2 && <p>{mockClient.addressLine2}</p>}
-                      <p>
-                        {mockClient.zip} {mockClient.city}
-                      </p>
-                      <p>{mockClient.country}</p>
+                  {client.email && (
+                    <div className="flex items-center gap-3">
+                      <Mail className="h-5 w-5 text-muted-foreground" />
+                      <span>{client.email}</span>
                     </div>
-                  </div>
+                  )}
+                  {client.phone && (
+                    <div className="flex items-center gap-3">
+                      <Phone className="h-5 w-5 text-muted-foreground" />
+                      <span>{client.phone}</span>
+                    </div>
+                  )}
+                  {(client.address_line1 || client.city) && (
+                    <div className="flex items-start gap-3">
+                      <MapPin className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        {client.address_line1 && <p>{client.address_line1}</p>}
+                        {client.address_line2 && <p>{client.address_line2}</p>}
+                        {(client.zip || client.city) && (
+                          <p>
+                            {client.zip} {client.city}
+                          </p>
+                        )}
+                        {client.country && <p>{client.country}</p>}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -137,15 +214,19 @@ export default function ClientDetail() {
                 <div className="space-y-4">
                   <div>
                     <p className="text-sm text-muted-foreground">Raison sociale</p>
-                    <p className="font-medium">{mockClient.companyName}</p>
+                    <p className="font-medium">{client.company_name}</p>
                   </div>
+                  {client.category && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Catégorie</p>
+                      <p className="font-medium">{client.category}</p>
+                    </div>
+                  )}
                   <div>
-                    <p className="text-sm text-muted-foreground">SIRET</p>
-                    <p className="font-medium">{mockClient.siret}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Code NAF</p>
-                    <p className="font-medium">{mockClient.codeNaf}</p>
+                    <p className="text-sm text-muted-foreground">Créé le</p>
+                    <p className="font-medium">
+                      {new Date(client.created_at).toLocaleDateString("fr-FR")}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -154,15 +235,30 @@ export default function ClientDetail() {
 
           <TabsContent value="custom">
             <div className="rounded-xl border border-border bg-card p-6">
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <FileText className="h-12 w-12 text-muted-foreground/50" />
-                <p className="mt-4 text-sm text-muted-foreground">
-                  Aucun champ personnalisé configuré
-                </p>
-                <Button variant="outline" className="mt-4">
-                  Configurer les champs
-                </Button>
-              </div>
+              {customFieldsWithValues.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <FileText className="h-12 w-12 text-muted-foreground/50" />
+                  <p className="mt-4 text-sm text-muted-foreground">
+                    Aucun champ personnalisé configuré
+                  </p>
+                  {userRole === "admin" && (
+                    <Button variant="outline" className="mt-4" asChild>
+                      <Link to="/custom-fields">Configurer les champs</Link>
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2">
+                  {customFieldsWithValues.map((field) => (
+                    <div key={field.id}>
+                      <p className="text-sm text-muted-foreground">{field.label}</p>
+                      <p className="font-medium">
+                        {field.value || <span className="text-muted-foreground">-</span>}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </TabsContent>
 
@@ -174,7 +270,7 @@ export default function ClientDetail() {
                 </h3>
               </div>
               <div className="divide-y divide-border">
-                {mockClient.documents.length === 0 ? (
+                {documents.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <FileText className="h-12 w-12 text-muted-foreground/50" />
                     <p className="mt-4 text-sm text-muted-foreground">
@@ -182,7 +278,7 @@ export default function ClientDetail() {
                     </p>
                   </div>
                 ) : (
-                  mockClient.documents.map((doc) => (
+                  documents.map((doc) => (
                     <div
                       key={doc.id}
                       className="flex items-center justify-between px-6 py-4"
@@ -193,10 +289,11 @@ export default function ClientDetail() {
                         </div>
                         <div>
                           <p className="font-medium text-foreground">
-                            {doc.templateName}
+                            {doc.template?.name || "Template supprimé"}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            Généré le {doc.createdAt} par {doc.generatedBy}
+                            Généré le {new Date(doc.created_at).toLocaleDateString("fr-FR")} par{" "}
+                            {doc.generated_by?.name || "Utilisateur"}
                           </p>
                         </div>
                       </div>
@@ -212,6 +309,22 @@ export default function ClientDetail() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Modifier le client</DialogTitle>
+          </DialogHeader>
+          <ClientForm
+            initialData={client}
+            onSuccess={() => {
+              setIsEditDialogOpen(false);
+              refetch();
+            }}
+            onCancel={() => setIsEditDialogOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

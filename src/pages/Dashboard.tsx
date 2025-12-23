@@ -3,42 +3,80 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { RecentDocuments } from "@/components/dashboard/RecentDocuments";
 import { Users, FileText, TrendingUp, Building } from "lucide-react";
-
-// Mock data - will be replaced with real data from Supabase
-const mockStats = {
-  totalClients: 156,
-  documentsThisMonth: 42,
-  activeTemplates: 8,
-  conversionRate: 23.5,
-};
-
-const mockRecentDocuments = [
-  {
-    id: "1",
-    clientName: "Entreprise ABC",
-    templateName: "Contrat de service",
-    createdAt: "Il y a 2 heures",
-    generatedBy: "Jean Dupont",
-  },
-  {
-    id: "2",
-    clientName: "Tech Solutions SAS",
-    templateName: "Proposition commerciale",
-    createdAt: "Il y a 5 heures",
-    generatedBy: "Marie Martin",
-  },
-  {
-    id: "3",
-    clientName: "Global Corp",
-    templateName: "Contrat de service",
-    createdAt: "Hier",
-    generatedBy: "Jean Dupont",
-  },
-];
+import { useAuth } from "@/hooks/useAuth";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Dashboard() {
+  const { userRole, userName, signOut } = useAuth();
+
+  // Fetch stats
+  const { data: stats } = useQuery({
+    queryKey: ["dashboard-stats"],
+    queryFn: async () => {
+      const [clientsRes, docsRes, templatesRes] = await Promise.all([
+        supabase.from("clients").select("id", { count: "exact", head: true }),
+        supabase
+          .from("generated_documents")
+          .select("id", { count: "exact", head: true })
+          .gte("created_at", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()),
+        supabase.from("pdf_templates").select("id", { count: "exact", head: true }),
+      ]);
+
+      return {
+        totalClients: clientsRes.count ?? 0,
+        documentsThisMonth: docsRes.count ?? 0,
+        activeTemplates: templatesRes.count ?? 0,
+      };
+    },
+  });
+
+  // Fetch recent documents
+  const { data: recentDocuments = [] } = useQuery({
+    queryKey: ["recent-documents"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("generated_documents")
+        .select(`
+          id,
+          created_at,
+          client:clients(company_name),
+          template:pdf_templates(name),
+          generated_by:profiles(name)
+        `)
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      return (data ?? []).map((doc) => ({
+        id: doc.id,
+        clientName: doc.client?.company_name ?? "Client inconnu",
+        templateName: doc.template?.name ?? "Template supprimé",
+        createdAt: formatRelativeDate(doc.created_at),
+        generatedBy: doc.generated_by?.name ?? "Utilisateur",
+      }));
+    },
+  });
+
+  function formatRelativeDate(dateStr: string) {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffHours < 1) return "Il y a quelques minutes";
+    if (diffHours < 24) return `Il y a ${diffHours} heure${diffHours > 1 ? "s" : ""}`;
+    if (diffDays === 1) return "Hier";
+    if (diffDays < 7) return `Il y a ${diffDays} jours`;
+    return date.toLocaleDateString("fr-FR");
+  }
+
   return (
-    <AppLayout userRole="admin" userName="Admin">
+    <AppLayout 
+      userRole={userRole ?? "sales"} 
+      userName={userName || "Utilisateur"} 
+      onLogout={signOut}
+    >
       <PageHeader
         title="Tableau de bord"
         description="Vue d'ensemble de votre activité"
@@ -49,31 +87,28 @@ export default function Dashboard() {
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Total clients"
-            value={mockStats.totalClients}
+            value={stats?.totalClients ?? 0}
             icon={<Users className="h-6 w-6" />}
-            trend={{ value: 12, isPositive: true }}
           />
           <StatCard
             title="Documents ce mois"
-            value={mockStats.documentsThisMonth}
+            value={stats?.documentsThisMonth ?? 0}
             icon={<FileText className="h-6 w-6" />}
-            trend={{ value: 8, isPositive: true }}
           />
           <StatCard
             title="Templates actifs"
-            value={mockStats.activeTemplates}
+            value={stats?.activeTemplates ?? 0}
             icon={<Building className="h-6 w-6" />}
           />
           <StatCard
-            title="Taux conversion"
-            value={`${mockStats.conversionRate}%`}
+            title="Taux de complétion"
+            value="100%"
             icon={<TrendingUp className="h-6 w-6" />}
-            trend={{ value: 3.2, isPositive: true }}
           />
         </div>
 
         {/* Recent Documents */}
-        <RecentDocuments documents={mockRecentDocuments} />
+        <RecentDocuments documents={recentDocuments} />
       </div>
     </AppLayout>
   );
