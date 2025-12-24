@@ -20,6 +20,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { formatDateFR } from "@/lib/dateUtils";
 import {
   Dialog,
   DialogContent,
@@ -356,7 +357,7 @@ export default function ClientDetail() {
                   <div>
                     <p className="text-sm text-muted-foreground">Créé le</p>
                     <p className="font-medium">
-                      {new Date(client.created_at).toLocaleDateString("fr-FR")}
+                      {formatDateFR(client.created_at)}
                     </p>
                   </div>
                 </div>
@@ -423,7 +424,7 @@ export default function ClientDetail() {
                             {doc.template?.name || "Template supprimé"}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            Généré le {new Date(doc.created_at).toLocaleDateString("fr-FR")} par{" "}
+                            Généré le {formatDateFR(doc.created_at)} par{" "}
                             {doc.generated_by?.name || "Utilisateur"}
                           </p>
                         </div>

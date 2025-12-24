@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { formatDateFR } from "@/lib/dateUtils";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -201,7 +202,7 @@ export default function Users() {
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {new Date(user.created_at).toLocaleDateString("fr-FR")}
+                    {formatDateFR(user.created_at)}
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>

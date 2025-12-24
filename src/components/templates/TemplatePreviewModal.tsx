@@ -23,8 +23,7 @@ import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import "react-pdf/dist/esm/Page/TextLayer.css";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
-import { format } from "date-fns";
-import { fr } from "date-fns/locale";
+import { formatDateFR, formatDateTimeFR } from "@/lib/dateUtils";
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
@@ -158,9 +157,9 @@ export function TemplatePreviewModal({
     if (fieldSource === "system") {
       switch (fieldKey) {
         case "today_date":
-          return format(new Date(), "dd/MM/yyyy", { locale: fr });
+          return formatDateFR(new Date());
         case "date_edition":
-          return format(new Date(), "dd/MM/yyyy 'à' HH:mm", { locale: fr });
+          return formatDateTimeFR(new Date());
         default:
           return "";
       }

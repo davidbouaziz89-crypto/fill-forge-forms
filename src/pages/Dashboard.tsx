@@ -6,6 +6,7 @@ import { Users, FileText, TrendingUp, Building } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { formatRelativeDateFR } from "@/lib/dateUtils";
 
 export default function Dashboard() {
   const { userRole, userName, signOut } = useAuth();
@@ -51,25 +52,11 @@ export default function Dashboard() {
         id: doc.id,
         clientName: doc.client?.company_name ?? "Client inconnu",
         templateName: doc.template?.name ?? "Template supprimé",
-        createdAt: formatRelativeDate(doc.created_at),
+        createdAt: formatRelativeDateFR(doc.created_at),
         generatedBy: doc.generated_by?.name ?? "Utilisateur",
       }));
     },
   });
-
-  function formatRelativeDate(dateStr: string) {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffHours < 1) return "Il y a quelques minutes";
-    if (diffHours < 24) return `Il y a ${diffHours} heure${diffHours > 1 ? "s" : ""}`;
-    if (diffDays === 1) return "Hier";
-    if (diffDays < 7) return `Il y a ${diffDays} jours`;
-    return date.toLocaleDateString("fr-FR");
-  }
 
   return (
     <AppLayout 
