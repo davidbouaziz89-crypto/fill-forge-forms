@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,9 +19,15 @@ import { Loader2, Eye, Download, User, UserPlus, AlertCircle } from "lucide-reac
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
+import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/esm/Page/AnnotationLayer.css";
+import "react-pdf/dist/esm/Page/TextLayer.css";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
+
+// Configure PDF.js worker
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
 // Mock client data for preview
 const MOCK_CLIENT = {
@@ -84,6 +90,8 @@ export function TemplatePreviewModal({
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [numPages, setNumPages] = useState(0);
+  const [pdfViewError, setPdfViewError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Fetch existing clients
@@ -247,8 +255,12 @@ export function TemplatePreviewModal({
     }
 
     setIsGenerating(true);
+    if (pdfBlobUrl) {
+      URL.revokeObjectURL(pdfBlobUrl);
+    }
     setPdfBlobUrl(null);
-
+    setNumPages(0);
+    setPdfViewError(null);
     try {
       console.log("Downloading source PDF from:", sourcePdfPath);
       
@@ -401,7 +413,15 @@ export function TemplatePreviewModal({
       URL.revokeObjectURL(pdfBlobUrl);
     }
     setPdfBlobUrl(null);
+    setNumPages(0);
+    setPdfViewError(null);
+    setErrorMessage(null);
     onOpenChange(false);
+  };
+
+  const handleOpenInNewTab = () => {
+    if (!pdfBlobUrl) return;
+    window.open(pdfBlobUrl, "_blank", "noopener,noreferrer");
   };
 
   const handleDownload = () => {
@@ -511,13 +531,56 @@ export function TemplatePreviewModal({
           {pdfBlobUrl && (
             <div className="space-y-4">
               <div className="border rounded-lg overflow-hidden bg-muted/30">
-                <iframe
-                  src={pdfBlobUrl}
-                  className="w-full h-[55vh]"
-                  title="Prévisualisation PDF"
-                />
+                <div className="h-[55vh] overflow-auto">
+                  <Document
+                    file={pdfBlobUrl}
+                    onLoadSuccess={({ numPages }) => {
+                      setNumPages(numPages);
+                      setPdfViewError(null);
+                    }}
+                    onLoadError={(err) => {
+                      const msg =
+                        err && typeof (err as any).message === "string"
+                          ? `Impossible d’afficher le PDF dans l’interface : ${(err as any).message}`
+                          : "Impossible d’afficher le PDF dans l’interface.";
+                      setPdfViewError(msg);
+                    }}
+                    loading={
+                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                        Chargement de l’aperçu…
+                      </div>
+                    }
+                  >
+                    {Array.from({ length: numPages }, (_, i) => (
+                      <div key={`page_${i + 1}`} className="flex justify-center py-3">
+                        <Page
+                          pageNumber={i + 1}
+                          width={720}
+                          renderAnnotationLayer={false}
+                          renderTextLayer={false}
+                        />
+                      </div>
+                    ))}
+                  </Document>
+                </div>
               </div>
+
+              {pdfViewError && (
+                <div className="border border-destructive/50 bg-destructive/10 rounded-lg p-4">
+                  <div className="flex items-start gap-3 text-destructive">
+                    <AlertCircle className="h-5 w-5 mt-0.5" />
+                    <div>
+                      <p className="font-medium">Affichage inline impossible</p>
+                      <p className="text-sm mt-1">{pdfViewError}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="flex justify-end gap-3">
+                <Button variant="outline" onClick={handleOpenInNewTab}>
+                  Ouvrir dans un nouvel onglet
+                </Button>
                 <Button variant="outline" onClick={handleDownload}>
                   <Download className="mr-2 h-4 w-4" />
                   Télécharger
