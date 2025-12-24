@@ -34,6 +34,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
+import { normalizeExcelDate, formatDateFR } from "@/lib/dateUtils";
 
 interface ImportModalProps {
   open: boolean;
@@ -142,13 +143,13 @@ export function ImportModal({ open, onOpenChange, onSuccess }: ImportModalProps)
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState({ created: 0, updated: 0, skipped: 0, errors: 0 });
 
-  // Fetch custom fields
+  // Fetch custom fields with type information
   const { data: customFields = [] } = useQuery({
     queryKey: ["custom-fields-import"],
     queryFn: async () => {
       const { data } = await supabase
         .from("custom_fields")
-        .select("id, key, label")
+        .select("id, key, label, type")
         .order("sort_order");
       return data ?? [];
     },
@@ -330,17 +331,29 @@ export function ImportModal({ open, onOpenChange, onSuccess }: ImportModalProps)
           if (!fieldKey) return;
           
           const rawValue = row[excelCol];
-          // Only set value if it's not empty - don't overwrite with null
-          const value = rawValue?.toString().trim() || null;
           
           if (fieldKey.startsWith("custom:")) {
             const customKey = fieldKey.replace("custom:", "");
-            if (value) {
-              customValues.push({ key: customKey, value });
+            const customField = customFields.find((f) => f.key === customKey);
+            
+            // Handle date type custom fields - normalize from Excel
+            if (customField?.type === "date" && rawValue) {
+              const normalizedDate = normalizeExcelDate(rawValue);
+              if (normalizedDate) {
+                customValues.push({ key: customKey, value: normalizedDate });
+              }
+            } else {
+              const value = rawValue?.toString().trim() || null;
+              if (value) {
+                customValues.push({ key: customKey, value });
+              }
             }
-          } else if (value) {
-            // Only include non-empty values for standard fields
-            clientData[fieldKey] = value;
+          } else {
+            // Only set value if it's not empty - don't overwrite with null
+            const value = rawValue?.toString().trim() || null;
+            if (value) {
+              clientData[fieldKey] = value;
+            }
           }
         });
 

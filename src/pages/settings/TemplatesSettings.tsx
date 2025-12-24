@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { formatDateFR } from "@/lib/dateUtils";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { Button } from "@/components/ui/button";
@@ -265,7 +266,7 @@ export default function TemplatesSettings() {
                 </div>
 
                 <p className="mt-4 text-xs text-muted-foreground">
-                  Mis à jour le {new Date(template.updated_at).toLocaleDateString("fr-FR")}
+                  Mis à jour le {formatDateFR(template.updated_at)}
                 </p>
               </div>
             ))}

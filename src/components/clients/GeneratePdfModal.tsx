@@ -24,8 +24,7 @@ import { toast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { Link } from "react-router-dom";
-import { format } from "date-fns";
-import { fr } from "date-fns/locale";
+import { formatDateFR, formatDateTimeFR } from "@/lib/dateUtils";
 
 const EDITOR_PDF_WIDTH_PX = 700;
 
@@ -139,10 +138,9 @@ export function GeneratePdfModal({
     if (fieldSource === "system") {
       switch (fieldKey) {
         case "today_date":
-          return format(new Date(), "dd/MM/yyyy", { locale: fr });
+          return formatDateFR(new Date());
         case "date_edition":
-          // Format: JJ/MM/AAAA à HH:mm
-          return format(new Date(), "dd/MM/yyyy 'à' HH:mm", { locale: fr });
+          return formatDateTimeFR(new Date());
         default:
           return "";
       }

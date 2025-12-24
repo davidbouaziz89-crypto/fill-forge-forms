@@ -1,5 +1,6 @@
 import { AppLayout } from "@/components/layout/AppLayout";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { formatDateFR } from "@/lib/dateUtils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -170,7 +171,7 @@ export default function Templates() {
                 </div>
 
                 <p className="mt-4 text-xs text-muted-foreground">
-                  Mis à jour le {new Date(template.updated_at).toLocaleDateString("fr-FR")}
+                  Mis à jour le {formatDateFR(template.updated_at)}
                 </p>
               </div>
             ))}
