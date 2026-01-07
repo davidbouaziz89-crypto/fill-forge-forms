@@ -617,14 +617,17 @@ export function ImportModal({ open, onOpenChange, onSuccess }: ImportModalProps)
                     </div>
                     <span className="text-muted-foreground">→</span>
                     <Select
-                      value={mapping[header] || ""}
-                      onValueChange={(value) => setMapping((prev) => ({ ...prev, [header]: value }))}
+                      value={mapping[header] || "__ignore__"}
+                      onValueChange={(value) => setMapping((prev) => ({ 
+                        ...prev, 
+                        [header]: value === "__ignore__" ? "" : value 
+                      }))}
                     >
                       <SelectTrigger className="w-[250px]">
                         <SelectValue placeholder="Ignorer cette colonne" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Ignorer</SelectItem>
+                        <SelectItem value="__ignore__">Ignorer</SelectItem>
                         {allFields.map((field) => (
                           <SelectItem key={field.key} value={field.key}>
                             {field.label} {field.required && "*"}
