@@ -65,14 +65,11 @@ export function ClientForm({ onSuccess, onCancel, initialData }: ClientFormProps
     type_client: initialData?.type_client ?? "entreprise",
   });
 
-  // Fetch sales users for assignment
+  // Fetch assignable users using secure function (returns only id and name, not email)
   const { data: salesUsers = [] } = useQuery({
-    queryKey: ["sales-users"],
+    queryKey: ["assignable-users"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("profiles")
-        .select("id, name")
-        .eq("is_active", true);
+      const { data } = await supabase.rpc("get_assignable_users");
       return data ?? [];
     },
   });

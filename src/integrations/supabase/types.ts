@@ -357,6 +357,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_assignable_users: {
+        Args: never
+        Returns: {
+          id: string
+          name: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
