@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,21 +15,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { FileText, Loader2, Eye, Download, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { Link } from "react-router-dom";
 import { formatDateFR, formatDateTimeFR } from "@/lib/dateUtils";
+import { renderFieldToPdf, applyTextTransform } from "@/lib/pdfRenderUtils";
 
 interface PreviewPdfModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   clientData: Record<string, any>;
   customValues: { key: string; value: string | null }[];
-  templateId?: string; // Optional: pre-select a template
+  templateId?: string;
 }
 
 export function PreviewPdfModal({
@@ -70,7 +70,6 @@ export function PreviewPdfModal({
   });
 
   const getFieldValue = (fieldKey: string, fieldSource: string): string => {
-    // Handle system fields
     if (fieldSource === "system") {
       switch (fieldKey) {
         case "today_date":
@@ -87,47 +86,6 @@ export function PreviewPdfModal({
       return customVal?.value ?? "";
     }
     return clientData[fieldKey]?.toString() ?? "";
-  };
-
-  const applyTransform = (value: string, transform: string): string => {
-    switch (transform) {
-      case "uppercase":
-        return value.toUpperCase();
-      case "lowercase":
-        return value.toLowerCase();
-      case "capitalize":
-        return value.replace(/\b\w/g, (c) => c.toUpperCase());
-      default:
-        return value;
-    }
-  };
-
-  // Split text into lines that fit within maxWidth
-  const wrapText = (
-    text: string,
-    font: any,
-    fontSize: number,
-    maxWidth: number
-  ): string[] => {
-    const words = text.split(" ");
-    const lines: string[] = [];
-    let currentLine = "";
-
-    for (const word of words) {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
-      const testWidth = font.widthOfTextAtSize(testLine, fontSize);
-
-      if (testWidth > maxWidth && currentLine) {
-        lines.push(currentLine);
-        currentLine = word;
-      } else {
-        currentLine = testLine;
-      }
-    }
-    if (currentLine) {
-      lines.push(currentLine);
-    }
-    return lines;
   };
 
   const handlePreview = async () => {
@@ -161,103 +119,38 @@ export function PreviewPdfModal({
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
       const pages = pdfDoc.getPages();
 
-      // Apply fields
+      // Apply fields using unified rendering utility
       for (const field of templateFields) {
         const pageIndex = (field.page || 1) - 1;
         if (pageIndex >= pages.length) continue;
 
         const page = pages[pageIndex];
-        const { width: pageWidthPt, height: pageHeightPt } = page.getSize();
 
         let value = getFieldValue(field.field_key, field.field_source);
         if (field.fallback_value && !value) {
           value = field.fallback_value;
         }
-        value = applyTransform(value, field.transform || "none");
+        value = applyTextTransform(value, field.transform || "none");
 
-        if (!value) {
-          continue;
-        }
+        if (!value) continue;
 
-        const fontSize = field.font_size || 10;
-        
-        // Calculate field dimensions in PDF points
-        const x_norm = Number(field.x) || 0;
-        const y_norm = Number(field.y) || 0;
-        const w_norm = Number(field.width) || 0.1;
-        const h_norm = Number(field.height) || 0.03;
-        
-        const fieldWidthPt = w_norm * pageWidthPt;
-        const fieldHeightPt = h_norm * pageHeightPt;
-
-        // Calculate PDF coordinates
-        let x_pt = x_norm * pageWidthPt;
-        
-        // Y: Convert from top-origin (editor) to bottom-origin (PDF)
-        const y_from_top_pt = y_norm * pageHeightPt;
-        let y_pt = pageHeightPt - y_from_top_pt - fontSize;
-
-        // Check if this is a multiline field (height > 1.5x font size in points)
-        const lineHeight = fontSize * 1.3;
-        const maxLines = Math.floor(fieldHeightPt / lineHeight);
-        const isMultiline = maxLines > 1;
-
-        if (isMultiline) {
-          // Wrap text for multiline fields
-          const lines = wrapText(value, font, fontSize, fieldWidthPt - 4);
-          const linesToDraw = lines.slice(0, maxLines);
-          
-          for (let i = 0; i < linesToDraw.length; i++) {
-            const lineY = y_pt - (i * lineHeight);
-            
-            // Handle alignment
-            const lineWidth = font.widthOfTextAtSize(linesToDraw[i], fontSize);
-            let lineX = x_pt;
-            
-            if (field.align === "center") {
-              lineX = x_pt + (fieldWidthPt - lineWidth) / 2;
-            } else if (field.align === "right") {
-              lineX = x_pt + fieldWidthPt - lineWidth;
-            }
-
-            page.drawText(linesToDraw[i], {
-              x: lineX,
-              y: lineY,
-              size: fontSize,
-              font,
-              color: rgb(0, 0, 0),
-            });
-          }
-        } else {
-          // Single line text
-          const textWidth = font.widthOfTextAtSize(value, fontSize);
-          const minMargin = 2;
-          
-          x_pt = Math.max(minMargin, Math.min(x_pt, pageWidthPt - textWidth - minMargin));
-          y_pt = Math.max(minMargin, Math.min(y_pt, pageHeightPt - fontSize - minMargin));
-
-          // Handle alignment within field width
-          let finalX = x_pt;
-          
-          if (field.align === "center") {
-            finalX = x_pt + (fieldWidthPt - textWidth) / 2;
-          } else if (field.align === "right") {
-            finalX = x_pt + fieldWidthPt - textWidth;
-          }
-
-          finalX = Math.max(minMargin, Math.min(finalX, pageWidthPt - textWidth - minMargin));
-
-          page.drawText(value, {
-            x: finalX,
-            y: y_pt,
-            size: fontSize,
-            font,
-            color: rgb(0, 0, 0),
-          });
-        }
+        // Use unified rendering function
+        renderFieldToPdf({
+          value,
+          fontSize: field.font_size || 10,
+          font,
+          page,
+          coords: {
+            x: Number(field.x) || 0,
+            y: Number(field.y) || 0,
+            width: Number(field.width) || 0.1,
+            height: Number(field.height) || 0.03,
+          },
+          align: field.align || "left",
+        });
       }
 
-      // Generate PDF blob for preview (NOT saved)
+      // Generate PDF blob for preview
       const generatedPdfBytes = await pdfDoc.save();
       const blob = new Blob([new Uint8Array(generatedPdfBytes)], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);

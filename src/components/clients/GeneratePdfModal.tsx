@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,74 +15,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import { FileText, Loader2, Download, AlertCircle, Bug } from "lucide-react";
+import { FileText, Loader2, Download, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { Link } from "react-router-dom";
 import { formatDateFR, formatDateTimeFR } from "@/lib/dateUtils";
-
-const EDITOR_PDF_WIDTH_PX = 700;
-
-type CoordMode =
-  | "normalized_columns"
-  | "normalized_xy"
-  | "legacy_pixels"
-  | "legacy_points"
-  | "invalid";
-
-type DebugRowStatus = "rendered" | "skipped";
-
-type DebugSkipReason =
-  | "invalid_page"
-  | "invalid_coords"
-  | "no_pages"
-  | "error"
-  | "unknown";
-
-type DebugNote = "empty_value" | "clamped";
-
-interface DebugRow {
-  id?: string;
-  field_key: string;
-  field_source: string;
-  page: number;
-  value_resolved: string;
-  value_drawn: string;
-  coord_mode: CoordMode;
-  coords_source: {
-    x?: number;
-    y?: number;
-    width?: number;
-    height?: number;
-    x_norm?: number;
-    y_norm?: number;
-    w_norm?: number;
-    h_norm?: number;
-  };
-  coords_final?: {
-    x_pt: number;
-    y_pt: number;
-    fieldWidthPt: number;
-    pageWidthPt: number;
-    pageHeightPt: number;
-  };
-  status: DebugRowStatus;
-  skip_reason?: DebugSkipReason;
-  notes?: DebugNote[];
-}
-
-interface DebugRun {
-  templateId: string;
-  found: number;
-  rendered: number;
-  rows: DebugRow[];
-  error?: string;
-}
+import { renderFieldToPdf, applyTextTransform } from "@/lib/pdfRenderUtils";
 
 interface GeneratePdfModalProps {
   open: boolean;
@@ -103,9 +43,6 @@ export function GeneratePdfModal({
 }: GeneratePdfModalProps) {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [debugEnabled, setDebugEnabled] = useState(false);
-  const [debugShowEmptyPlaceholder, setDebugShowEmptyPlaceholder] = useState(false);
-  const [debugRun, setDebugRun] = useState<DebugRun | null>(null);
 
   // Fetch templates
   const { data: templates = [] } = useQuery({
@@ -134,7 +71,6 @@ export function GeneratePdfModal({
   });
 
   const getFieldValue = (fieldKey: string, fieldSource: string): string => {
-    // Handle system fields
     if (fieldSource === "system") {
       switch (fieldKey) {
         case "today_date":
@@ -151,47 +87,6 @@ export function GeneratePdfModal({
       return customVal?.value ?? "";
     }
     return clientData[fieldKey]?.toString() ?? "";
-  };
-
-  const applyTransform = (value: string, transform: string): string => {
-    switch (transform) {
-      case "uppercase":
-        return value.toUpperCase();
-      case "lowercase":
-        return value.toLowerCase();
-      case "capitalize":
-        return value.replace(/\b\w/g, (c) => c.toUpperCase());
-      default:
-        return value;
-    }
-  };
-
-  // Split text into lines that fit within maxWidth
-  const wrapText = (
-    text: string,
-    font: any,
-    fontSize: number,
-    maxWidth: number
-  ): string[] => {
-    const words = text.split(" ");
-    const lines: string[] = [];
-    let currentLine = "";
-
-    for (const word of words) {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
-      const testWidth = font.widthOfTextAtSize(testLine, fontSize);
-
-      if (testWidth > maxWidth && currentLine) {
-        lines.push(currentLine);
-        currentLine = word;
-      } else {
-        currentLine = testLine;
-      }
-    }
-    if (currentLine) {
-      lines.push(currentLine);
-    }
-    return lines;
   };
 
   const handleGenerate = async () => {
@@ -224,101 +119,35 @@ export function GeneratePdfModal({
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
       const pages = pdfDoc.getPages();
 
-      // Apply fields
+      // Apply fields using unified rendering utility
       for (const field of templateFields) {
         const pageIndex = (field.page || 1) - 1;
         if (pageIndex >= pages.length) continue;
 
         const page = pages[pageIndex];
-        const { width: pageWidthPt, height: pageHeightPt } = page.getSize();
 
         let value = getFieldValue(field.field_key, field.field_source);
         if (field.fallback_value && !value) {
           value = field.fallback_value;
         }
-        value = applyTransform(value, field.transform || "none");
+        value = applyTextTransform(value, field.transform || "none");
 
-        if (!value) {
-          console.warn(`Empty value for field: ${field.field_key}`);
-          continue;
-        }
+        if (!value) continue;
 
-        const fontSize = field.font_size || 10;
-
-        // Calculate field dimensions in PDF points
-        const x_norm = Number(field.x) || 0;
-        const y_norm = Number(field.y) || 0;
-        const w_norm = Number(field.width) || 0.1;
-        const h_norm = Number(field.height) || 0.03;
-        
-        const fieldWidthPt = w_norm * pageWidthPt;
-        const fieldHeightPt = h_norm * pageHeightPt;
-
-        // Calculate PDF coordinates
-        let x_pt = x_norm * pageWidthPt;
-        
-        // Y: Convert from top-origin (editor) to bottom-origin (PDF)
-        const y_from_top_pt = y_norm * pageHeightPt;
-        let y_pt = pageHeightPt - y_from_top_pt - fontSize;
-
-        // Check if this is a multiline field (height > 1.5x font size in points)
-        const lineHeight = fontSize * 1.3;
-        const maxLines = Math.floor(fieldHeightPt / lineHeight);
-        const isMultiline = maxLines > 1;
-
-        if (isMultiline) {
-          // Wrap text for multiline fields
-          const lines = wrapText(value, font, fontSize, fieldWidthPt - 4);
-          const linesToDraw = lines.slice(0, maxLines);
-          
-          for (let i = 0; i < linesToDraw.length; i++) {
-            const lineY = y_pt - (i * lineHeight);
-            
-            // Handle alignment
-            const lineWidth = font.widthOfTextAtSize(linesToDraw[i], fontSize);
-            let lineX = x_pt;
-            
-            if (field.align === "center") {
-              lineX = x_pt + (fieldWidthPt - lineWidth) / 2;
-            } else if (field.align === "right") {
-              lineX = x_pt + fieldWidthPt - lineWidth;
-            }
-
-            page.drawText(linesToDraw[i], {
-              x: lineX,
-              y: lineY,
-              size: fontSize,
-              font,
-              color: rgb(0, 0, 0),
-            });
-          }
-        } else {
-          // Single line text
-          const textWidth = font.widthOfTextAtSize(value, fontSize);
-          const minMargin = 2;
-          
-          x_pt = Math.max(minMargin, Math.min(x_pt, pageWidthPt - textWidth - minMargin));
-          y_pt = Math.max(minMargin, Math.min(y_pt, pageHeightPt - fontSize - minMargin));
-
-          // Handle alignment within field width
-          let finalX = x_pt;
-          
-          if (field.align === "center") {
-            finalX = x_pt + (fieldWidthPt - textWidth) / 2;
-          } else if (field.align === "right") {
-            finalX = x_pt + fieldWidthPt - textWidth;
-          }
-
-          finalX = Math.max(minMargin, Math.min(finalX, pageWidthPt - textWidth - minMargin));
-
-          page.drawText(value, {
-            x: finalX,
-            y: y_pt,
-            size: fontSize,
-            font,
-            color: rgb(0, 0, 0),
-          });
-        }
+        // Use unified rendering function
+        renderFieldToPdf({
+          value,
+          fontSize: field.font_size || 10,
+          font,
+          page,
+          coords: {
+            x: Number(field.x) || 0,
+            y: Number(field.y) || 0,
+            width: Number(field.width) || 0.1,
+            height: Number(field.height) || 0.03,
+          },
+          align: field.align || "left",
+        });
       }
 
       // Save generated PDF
