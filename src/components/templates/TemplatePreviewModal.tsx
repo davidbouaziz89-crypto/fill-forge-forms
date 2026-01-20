@@ -22,8 +22,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import "react-pdf/dist/esm/Page/TextLayer.css";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { formatDateFR, formatDateTimeFR } from "@/lib/dateUtils";
+import { renderFieldToPdf, applyTextTransform } from "@/lib/pdfRenderUtils";
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
@@ -75,7 +76,7 @@ interface TemplatePreviewModalProps {
   onOpenChange: (open: boolean) => void;
   templateId: string;
   sourcePdfPath: string;
-  fields: TemplateField[]; // Current fields (possibly unsaved)
+  fields: TemplateField[];
 }
 
 export function TemplatePreviewModal({
@@ -153,7 +154,6 @@ export function TemplatePreviewModal({
   });
 
   const getFieldValue = (fieldKey: string, fieldSource: string): string => {
-    // Handle system fields
     if (fieldSource === "system") {
       switch (fieldKey) {
         case "today_date":
@@ -183,52 +183,7 @@ export function TemplatePreviewModal({
     return (clientData as any)[fieldKey]?.toString() ?? "";
   };
 
-  const applyTransform = (value: string, transform: string): string => {
-    switch (transform) {
-      case "uppercase":
-        return value.toUpperCase();
-      case "lowercase":
-        return value.toLowerCase();
-      case "capitalize":
-        return value.replace(/\b\w/g, (c) => c.toUpperCase());
-      default:
-        return value;
-    }
-  };
-
-  const wrapText = (
-    text: string,
-    font: any,
-    fontSize: number,
-    maxWidth: number
-  ): string[] => {
-    const words = text.split(" ");
-    const lines: string[] = [];
-    let currentLine = "";
-
-    for (const word of words) {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
-      const testWidth = font.widthOfTextAtSize(testLine, fontSize);
-
-      if (testWidth > maxWidth && currentLine) {
-        lines.push(currentLine);
-        currentLine = word;
-      } else {
-        currentLine = testLine;
-      }
-    }
-    if (currentLine) {
-      lines.push(currentLine);
-    }
-    return lines;
-  };
-
   const handlePreview = async () => {
-    console.log("Starting preview generation...");
-    console.log("Source PDF path:", sourcePdfPath);
-    console.log("Fields count:", fields.length);
-    console.log("Client source:", clientSource);
-    
     setErrorMessage(null);
     
     if (!sourcePdfPath) {
@@ -260,16 +215,14 @@ export function TemplatePreviewModal({
     setPdfBlobUrl(null);
     setNumPages(0);
     setPdfViewError(null);
+
     try {
-      console.log("Downloading source PDF from:", sourcePdfPath);
-      
       // Download source PDF
       const { data: pdfData, error: downloadError } = await supabase.storage
         .from("pdf-templates")
         .download(sourcePdfPath);
 
       if (downloadError) {
-        console.error("Download error:", downloadError);
         throw new Error(`Erreur de téléchargement: ${downloadError.message}`);
       }
       
@@ -277,117 +230,49 @@ export function TemplatePreviewModal({
         throw new Error("Le fichier PDF source est vide ou introuvable.");
       }
 
-      console.log("PDF downloaded, size:", pdfData.size);
-
       // Load PDF with pdf-lib
       const pdfBytes = await pdfData.arrayBuffer();
-      console.log("PDF bytes loaded:", pdfBytes.byteLength);
-      
       const pdfDoc = await PDFDocument.load(pdfBytes);
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
       const pages = pdfDoc.getPages();
-      
-      console.log("PDF loaded, pages:", pages.length);
 
-      // Apply current fields (from editor, not saved)
-      console.log("Applying fields:", fields);
-      
+      // Apply fields using unified rendering utility
       for (const field of fields) {
         const pageIndex = (field.page || 1) - 1;
-        if (pageIndex >= pages.length) {
-          console.warn("Field page out of range:", field.page);
-          continue;
-        }
+        if (pageIndex >= pages.length) continue;
 
         const page = pages[pageIndex];
-        const { width: pageWidthPt, height: pageHeightPt } = page.getSize();
 
         let value = getFieldValue(field.field_key, field.field_source);
-        console.log(`Field ${field.field_key}: value="${value}"`);
-        
         if (field.fallback_value && !value) {
           value = field.fallback_value;
         }
-        value = applyTransform(value, field.transform || "none");
+        value = applyTextTransform(value, field.transform || "none");
 
         if (!value) continue;
 
-        const fontSize = field.font_size || 10;
-
-        const x_norm = Number(field.x) || 0;
-        const y_norm = Number(field.y) || 0;
-        const w_norm = Number(field.width) || 0.1;
-        const h_norm = Number(field.height) || 0.03;
-
-        const fieldWidthPt = w_norm * pageWidthPt;
-        const fieldHeightPt = h_norm * pageHeightPt;
-
-        let x_pt = x_norm * pageWidthPt;
-        const y_from_top_pt = y_norm * pageHeightPt;
-        let y_pt = pageHeightPt - y_from_top_pt - fontSize;
-
-        const lineHeight = fontSize * 1.3;
-        const maxLines = Math.floor(fieldHeightPt / lineHeight);
-        const isMultiline = maxLines > 1;
-
-        if (isMultiline) {
-          const lines = wrapText(value, font, fontSize, fieldWidthPt - 4);
-          const linesToDraw = lines.slice(0, maxLines);
-
-          for (let i = 0; i < linesToDraw.length; i++) {
-            const lineY = y_pt - i * lineHeight;
-            const lineWidth = font.widthOfTextAtSize(linesToDraw[i], fontSize);
-            let lineX = x_pt;
-
-            if (field.align === "center") {
-              lineX = x_pt + (fieldWidthPt - lineWidth) / 2;
-            } else if (field.align === "right") {
-              lineX = x_pt + fieldWidthPt - lineWidth;
-            }
-
-            page.drawText(linesToDraw[i], {
-              x: lineX,
-              y: lineY,
-              size: fontSize,
-              font,
-              color: rgb(0, 0, 0),
-            });
-          }
-        } else {
-          const textWidth = font.widthOfTextAtSize(value, fontSize);
-          const minMargin = 2;
-
-          x_pt = Math.max(minMargin, Math.min(x_pt, pageWidthPt - textWidth - minMargin));
-          y_pt = Math.max(minMargin, Math.min(y_pt, pageHeightPt - fontSize - minMargin));
-
-          let finalX = x_pt;
-
-          if (field.align === "center") {
-            finalX = x_pt + (fieldWidthPt - textWidth) / 2;
-          } else if (field.align === "right") {
-            finalX = x_pt + fieldWidthPt - textWidth;
-          }
-
-          finalX = Math.max(minMargin, Math.min(finalX, pageWidthPt - textWidth - minMargin));
-
-          page.drawText(value, {
-            x: finalX,
-            y: y_pt,
-            size: fontSize,
-            font,
-            color: rgb(0, 0, 0),
-          });
-        }
+        // Use unified rendering function
+        renderFieldToPdf({
+          value,
+          fontSize: field.font_size || 10,
+          font,
+          page,
+          coords: {
+            x: Number(field.x) || 0,
+            y: Number(field.y) || 0,
+            width: Number(field.width) || 0.1,
+            height: Number(field.height) || 0.03,
+          },
+          align: field.align || "left",
+        });
       }
 
-      // Generate PDF blob (NOT saved)
-      console.log("Generating final PDF...");
+      // Generate PDF blob
       const generatedPdfBytes = await pdfDoc.save();
       const blob = new Blob([new Uint8Array(generatedPdfBytes)], {
         type: "application/pdf",
       });
       const url = URL.createObjectURL(blob);
-      console.log("PDF generated, blob URL:", url);
       setPdfBlobUrl(url);
       toast({
         title: "Prévisualisation générée",
@@ -437,7 +322,7 @@ export function TemplatePreviewModal({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-4xl max-h-[90vh]">
         <DialogHeader>
-          <DialogTitle>👁️ Prévisualiser le modèle</DialogTitle>
+          <DialogTitle>Prévisualiser le modèle</DialogTitle>
           <DialogDescription>
             Visualisez le rendu final avec les positions actuelles des champs (non sauvegardées)
           </DialogDescription>
@@ -498,11 +383,24 @@ export function TemplatePreviewModal({
 
           {/* Mock client info */}
           {clientSource === "mock" && (
-            <div className="bg-muted/50 rounded-lg p-3 text-sm">
-              <p className="font-medium mb-1">Données fictives utilisées :</p>
-              <p className="text-muted-foreground">
-                {MOCK_CLIENT.company_name} • {MOCK_CLIENT.first_name} {MOCK_CLIENT.last_name} • {MOCK_CLIENT.city}
-              </p>
+            <div className="rounded-lg border border-border p-4 bg-muted/50">
+              <p className="text-sm font-medium mb-2">Client fictif de démonstration :</p>
+              <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                <div>Société: {MOCK_CLIENT.company_name}</div>
+                <div>Contact: {MOCK_CLIENT.first_name} {MOCK_CLIENT.last_name}</div>
+                <div>Email: {MOCK_CLIENT.email}</div>
+                <div>Ville: {MOCK_CLIENT.city}</div>
+              </div>
+            </div>
+          )}
+
+          {/* Error display */}
+          {errorMessage && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+              <div className="flex items-center gap-2 text-destructive">
+                <AlertCircle className="h-4 w-4" />
+                <span className="text-sm font-medium">{errorMessage}</span>
+              </div>
             </div>
           )}
 
@@ -516,7 +414,7 @@ export function TemplatePreviewModal({
             {isGenerating ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Génération...
+                Génération en cours...
               </>
             ) : (
               <>
@@ -529,55 +427,40 @@ export function TemplatePreviewModal({
           {/* PDF Preview */}
           {pdfBlobUrl && (
             <div className="space-y-4">
-              <div className="border rounded-lg overflow-hidden bg-muted/30">
-                <div className="h-[55vh] overflow-auto">
-                  <Document
-                    file={pdfBlobUrl}
-                    onLoadSuccess={({ numPages }) => {
-                      setNumPages(numPages);
-                      setPdfViewError(null);
-                    }}
-                    onLoadError={(err) => {
-                      const msg =
-                        err && typeof (err as any).message === "string"
-                          ? `Impossible d’afficher le PDF dans l’interface : ${(err as any).message}`
-                          : "Impossible d’afficher le PDF dans l’interface.";
-                      setPdfViewError(msg);
-                    }}
-                    loading={
-                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                        Chargement de l’aperçu…
-                      </div>
-                    }
-                  >
-                    {Array.from({ length: numPages }, (_, i) => (
-                      <div key={`page_${i + 1}`} className="flex justify-center py-3">
-                        <Page
-                          pageNumber={i + 1}
-                          width={720}
-                          renderAnnotationLayer={false}
-                          renderTextLayer={false}
-                        />
-                      </div>
-                    ))}
-                  </Document>
-                </div>
+              <div className="border rounded-lg overflow-hidden bg-muted/30 flex justify-center">
+                <Document
+                  file={pdfBlobUrl}
+                  onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+                  onLoadError={(error) => {
+                    console.error("PDF view error:", error);
+                    setPdfViewError("Impossible d'afficher le PDF dans le navigateur.");
+                  }}
+                  loading={
+                    <div className="flex items-center justify-center p-8">
+                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    </div>
+                  }
+                >
+                  {Array.from(new Array(numPages), (_, index) => (
+                    <Page
+                      key={`page_${index + 1}`}
+                      pageNumber={index + 1}
+                      width={600}
+                      className="border-b last:border-b-0"
+                    />
+                  ))}
+                </Document>
               </div>
 
               {pdfViewError && (
-                <div className="border border-destructive/50 bg-destructive/10 rounded-lg p-4">
-                  <div className="flex items-start gap-3 text-destructive">
-                    <AlertCircle className="h-5 w-5 mt-0.5" />
-                    <div>
-                      <p className="font-medium">Affichage inline impossible</p>
-                      <p className="text-sm mt-1">{pdfViewError}</p>
-                    </div>
-                  </div>
+                <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded-lg">
+                  {pdfViewError}
                 </div>
               )}
 
               <div className="flex justify-end gap-3">
                 <Button variant="outline" onClick={handleOpenInNewTab}>
+                  <Eye className="mr-2 h-4 w-4" />
                   Ouvrir dans un nouvel onglet
                 </Button>
                 <Button variant="outline" onClick={handleDownload}>
@@ -585,27 +468,6 @@ export function TemplatePreviewModal({
                   Télécharger
                 </Button>
               </div>
-            </div>
-          )}
-
-          {/* Error state */}
-          {!pdfBlobUrl && errorMessage && (
-            <div className="border border-destructive/50 bg-destructive/10 rounded-lg p-6 flex flex-col items-center justify-center text-destructive">
-              <AlertCircle className="h-12 w-12 mb-4" />
-              <p className="font-medium">Erreur de génération</p>
-              <p className="text-sm mt-2 text-center">{errorMessage}</p>
-            </div>
-          )}
-
-          {/* Empty state */}
-          {!pdfBlobUrl && !errorMessage && (
-            <div className="border border-dashed rounded-lg p-12 flex flex-col items-center justify-center text-muted-foreground">
-              <Eye className="h-12 w-12 mb-4 opacity-50" />
-              <p>Cliquez sur "Générer la prévisualisation" pour voir le rendu</p>
-              <p className="text-xs mt-2">Les positions actuelles des champs seront utilisées</p>
-              {fields.length === 0 && (
-                <p className="text-xs mt-2 text-amber-500">Aucun champ n'est placé sur le document</p>
-              )}
             </div>
           )}
         </div>
