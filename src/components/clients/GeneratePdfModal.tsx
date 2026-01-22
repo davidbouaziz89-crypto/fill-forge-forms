@@ -28,8 +28,6 @@ interface GeneratePdfModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   clientId: string;
-  clientData: Record<string, any>;
-  customValues: { key: string; value: string | null }[];
   onSuccess: () => void;
 }
 
@@ -37,8 +35,6 @@ export function GeneratePdfModal({
   open,
   onOpenChange,
   clientId,
-  clientData,
-  customValues,
   onSuccess,
 }: GeneratePdfModalProps) {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
@@ -70,7 +66,13 @@ export function GeneratePdfModal({
     enabled: !!selectedTemplate,
   });
 
-  const getFieldValue = (fieldKey: string, fieldSource: string): string => {
+  // Helper to get field value from fresh data
+  const getFieldValue = (
+    fieldKey: string, 
+    fieldSource: string,
+    clientData: Record<string, any>,
+    customValues: { key: string; value: string | null }[]
+  ): string => {
     if (fieldSource === "system") {
       switch (fieldKey) {
         case "today_date":
@@ -84,6 +86,7 @@ export function GeneratePdfModal({
 
     if (fieldSource === "custom") {
       const customVal = customValues.find((cv) => cv.key === fieldKey);
+      console.log(`[PDF Gen] Custom field "${fieldKey}": found =`, customVal?.value ?? "(empty)");
       return customVal?.value ?? "";
     }
     return clientData[fieldKey]?.toString() ?? "";
@@ -104,6 +107,38 @@ export function GeneratePdfModal({
     setIsGenerating(true);
 
     try {
+      // CRITICAL: Fetch fresh client data directly from database to avoid stale state
+      console.log("[PDF Gen] Fetching fresh client data from database...");
+      const { data: freshClient, error: clientError } = await supabase
+        .from("clients")
+        .select("*")
+        .eq("id", clientId)
+        .single();
+
+      if (clientError || !freshClient) {
+        throw new Error("Impossible de charger les données client");
+      }
+      console.log("[PDF Gen] Fresh client data loaded:", freshClient);
+
+      // CRITICAL: Fetch fresh custom field values directly from database
+      console.log("[PDF Gen] Fetching fresh custom field values from database...");
+      const { data: customFields } = await supabase
+        .from("custom_fields")
+        .select("id, key");
+
+      const { data: freshCustomValues } = await supabase
+        .from("client_custom_values")
+        .select("custom_field_id, value_text")
+        .eq("client_id", clientId);
+
+      // Map custom values with their keys
+      const customValuesMap: { key: string; value: string | null }[] = (customFields ?? []).map((field) => {
+        const valueRecord = freshCustomValues?.find((v) => v.custom_field_id === field.id);
+        return { key: field.key, value: valueRecord?.value_text ?? null };
+      });
+
+      console.log("[PDF Gen] Fresh custom values loaded:", customValuesMap);
+
       // Download source PDF
       const { data: pdfData, error: downloadError } = await supabase.storage
         .from("pdf-templates")
@@ -119,14 +154,15 @@ export function GeneratePdfModal({
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
       const pages = pdfDoc.getPages();
 
-      // Apply fields using unified rendering utility
+      // Apply fields using unified rendering utility with FRESH DATA
       for (const field of templateFields) {
         const pageIndex = (field.page || 1) - 1;
         if (pageIndex >= pages.length) continue;
 
         const page = pages[pageIndex];
 
-        let value = getFieldValue(field.field_key, field.field_source);
+        // Use fresh data from database, not stale props
+        let value = getFieldValue(field.field_key, field.field_source, freshClient, customValuesMap);
         if (field.fallback_value && !value) {
           value = field.fallback_value;
         }
