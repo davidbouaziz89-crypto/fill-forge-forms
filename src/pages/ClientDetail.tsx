@@ -483,8 +483,6 @@ export default function ClientDetail() {
         open={isGenerateModalOpen}
         onOpenChange={setIsGenerateModalOpen}
         clientId={id!}
-        clientData={client}
-        customValues={customFieldsWithValues.map((f) => ({ key: f.key, value: f.value }))}
         onSuccess={() => refetchDocuments()}
       />
 
