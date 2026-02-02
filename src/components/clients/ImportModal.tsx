@@ -35,6 +35,7 @@ import { toast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import * as XLSX from "xlsx";
 import { normalizeExcelDate, formatDateFR } from "@/lib/dateUtils";
+import { validateClientData, sanitizeCustomValue } from "@/lib/importValidation";
 
 interface ImportModalProps {
   open: boolean;
@@ -324,7 +325,7 @@ export function ImportModal({ open, onOpenChange, onSuccess }: ImportModalProps)
       
       try {
         // Build client data from mapping
-        const clientData: Record<string, string | null> = {};
+        const rawClientData: Record<string, string | null> = {};
         const customValues: { key: string; value: string }[] = [];
 
         Object.entries(mapping).forEach(([excelCol, fieldKey]) => {
@@ -340,27 +341,41 @@ export function ImportModal({ open, onOpenChange, onSuccess }: ImportModalProps)
             if (customField?.type === "date" && rawValue) {
               const normalizedDate = normalizeExcelDate(rawValue);
               if (normalizedDate) {
-                customValues.push({ key: customKey, value: normalizedDate });
+                const sanitized = sanitizeCustomValue(normalizedDate);
+                if (sanitized) {
+                  customValues.push({ key: customKey, value: sanitized });
+                }
               }
             } else {
-              const value = rawValue?.toString().trim() || null;
-              if (value) {
-                customValues.push({ key: customKey, value });
+              const sanitized = sanitizeCustomValue(rawValue?.toString());
+              if (sanitized) {
+                customValues.push({ key: customKey, value: sanitized });
               }
             }
           } else {
             // Only set value if it's not empty - don't overwrite with null
             const value = rawValue?.toString().trim() || null;
             if (value) {
-              clientData[fieldKey] = value;
+              rawClientData[fieldKey] = value;
             }
           }
         });
 
-        if (!clientData.company_name) {
+        // Validate and sanitize client data
+        const validation = validateClientData(rawClientData);
+        
+        if (!validation.valid) {
+          console.warn(`Row ${i + 2}: Validation errors:`, validation.errors);
           errors++;
           continue;
         }
+
+        // Log warnings but continue with sanitized data
+        if (validation.warnings.length > 0) {
+          console.info(`Row ${i + 2}: Warnings:`, validation.warnings);
+        }
+
+        const clientData = validation.data;
 
         // Check for duplicates
         const duplicateCheck = checkDuplicate(clientData);
