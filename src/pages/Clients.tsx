@@ -110,10 +110,12 @@ export default function Clients() {
                 Importer Excel/CSV
               </Button>
             )}
-            <Button variant="accent" onClick={() => setIsCreateDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Nouveau client
-            </Button>
+            {userRole === "admin" && (
+              <Button variant="accent" onClick={() => setIsCreateDialogOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Nouveau client
+              </Button>
+            )}
           </div>
         }
       />

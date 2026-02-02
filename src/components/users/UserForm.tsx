@@ -55,31 +55,28 @@ export function UserForm({ onSuccess, onCancel }: UserFormProps) {
       userSchema.parse(formData);
       setIsLoading(true);
 
-      // Create user via auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
-            name: formData.name,
-          },
+      // Get current session for authorization
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("Session expirée, veuillez vous reconnecter");
+      }
+
+      // Call edge function for secure user creation
+      const response = await supabase.functions.invoke("create-user", {
+        body: {
+          email: formData.email,
+          password: formData.password,
+          name: formData.name,
+          role: formData.role,
         },
       });
 
-      if (authError) throw authError;
+      if (response.error) {
+        throw new Error(response.error.message || "Erreur lors de la création");
+      }
 
-      if (authData.user) {
-        // Add role
-        const { error: roleError } = await supabase
-          .from("user_roles")
-          .insert({
-            user_id: authData.user.id,
-            role: formData.role,
-          });
-
-        if (roleError) {
-          console.error("Error adding role:", roleError);
-        }
+      if (response.data?.error) {
+        throw new Error(response.data.error);
       }
 
       toast({
