@@ -41,11 +41,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { UserForm } from "@/components/users/UserForm";
+import { UserEditForm } from "@/components/users/UserEditForm";
 
 export default function Users() {
   const { userRole, userName, signOut } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<{ id: string; name: string; email: string; role: string } | null>(null);
   const queryClient = useQueryClient();
 
   const { data: users = [], isLoading } = useQuery({
@@ -216,7 +218,7 @@ export default function Users() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setEditingUser({ id: user.id, name: user.name, email: user.email, role: user.role })}>
                           <Edit className="mr-2 h-4 w-4" />
                           Modifier
                         </DropdownMenuItem>
@@ -256,6 +258,24 @@ export default function Users() {
             }}
             onCancel={() => setIsCreateDialogOpen(false)}
           />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingUser} onOpenChange={(open) => !open && setEditingUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Modifier l'utilisateur</DialogTitle>
+          </DialogHeader>
+          {editingUser && (
+            <UserEditForm
+              user={editingUser}
+              onSuccess={() => {
+                setEditingUser(null);
+                queryClient.invalidateQueries({ queryKey: ["users"] });
+              }}
+              onCancel={() => setEditingUser(null)}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </AppLayout>
