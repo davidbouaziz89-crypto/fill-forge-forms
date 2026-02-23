@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { userId, role, name } = await req.json();
+    const { userId, role, name, password } = await req.json();
 
     if (!userId) {
       return new Response(
@@ -89,6 +89,20 @@ Deno.serve(async (req) => {
         );
       }
     }
+
+    // Update password if provided
+    if (password && password.length >= 6) {
+      const { error: passwordError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+        password,
+      });
+
+      if (passwordError) {
+        console.error("Password update error:", passwordError);
+        return new Response(
+          JSON.stringify({ error: "Erreur lors de la mise à jour du mot de passe" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
     return new Response(
       JSON.stringify({ success: true }),

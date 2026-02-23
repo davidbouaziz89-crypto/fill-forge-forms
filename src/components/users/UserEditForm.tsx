@@ -27,6 +27,7 @@ export function UserEditForm({ user, onSuccess, onCancel }: UserEditFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [name, setName] = useState(user.name);
   const [role, setRole] = useState(user.role);
+  const [password, setPassword] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,10 +37,15 @@ export function UserEditForm({ user, onSuccess, onCancel }: UserEditFormProps) {
       return;
     }
 
+    if (password && password.length < 6) {
+      toast({ title: "Erreur", description: "Le mot de passe doit contenir au moins 6 caractères", variant: "destructive" });
+      return;
+    }
+
     setIsLoading(true);
     try {
       const response = await supabase.functions.invoke("update-user", {
-        body: { userId: user.id, name: name.trim(), role },
+        body: { userId: user.id, name: name.trim(), role, ...(password ? { password } : {}) },
       });
 
       if (response.error) throw new Error(response.error.message);
@@ -68,6 +74,16 @@ export function UserEditForm({ user, onSuccess, onCancel }: UserEditFormProps) {
       <div className="space-y-2">
         <Label>Email</Label>
         <Input value={user.email} disabled className="opacity-60" />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Nouveau mot de passe</Label>
+        <Input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Laisser vide pour ne pas modifier"
+        />
       </div>
 
       <div className="space-y-2">
