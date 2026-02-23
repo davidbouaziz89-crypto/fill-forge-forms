@@ -3,7 +3,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Building2, Mail, Lock, ArrowRight, User } from "lucide-react";
+import { Mail, Lock, ArrowRight, User } from "lucide-react";
+import logoEngco from "@/assets/logo-engco.png";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { z } from "zod";
@@ -137,9 +138,7 @@ export default function Auth() {
       {/* Left side - Branding */}
       <div className="hidden w-1/2 bg-primary lg:flex lg:flex-col lg:justify-between lg:p-12">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-foreground/10">
-            <Building2 className="h-6 w-6 text-primary-foreground" />
-          </div>
+          <img src={logoEngco} alt="ENGCO logo" className="h-10 w-10 rounded-lg object-contain" />
           <span className="text-xl font-semibold text-primary-foreground">
             DocuCRM
           </span>
@@ -169,9 +168,7 @@ export default function Auth() {
         <div className="w-full max-w-md space-y-8">
           <div className="text-center lg:text-left">
             <div className="mb-6 flex items-center justify-center gap-3 lg:hidden">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
-                <Building2 className="h-6 w-6 text-primary-foreground" />
-              </div>
+              <img src={logoEngco} alt="ENGCO logo" className="h-10 w-10 rounded-lg object-contain" />
               <span className="text-xl font-semibold text-foreground">
                 DocuCRM
               </span>
