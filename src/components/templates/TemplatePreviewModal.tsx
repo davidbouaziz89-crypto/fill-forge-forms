@@ -27,7 +27,7 @@ import { formatDateFR, formatDateTimeFR } from "@/lib/dateUtils";
 import { renderFieldToPdf, applyTextTransform } from "@/lib/pdfRenderUtils";
 
 // Configure PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 // Mock client data for preview
 const MOCK_CLIENT = {
